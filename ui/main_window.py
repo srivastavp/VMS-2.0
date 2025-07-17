@@ -22,38 +22,68 @@ class LicenseDialog(QDialog):
     
     def init_ui(self):
         self.setWindowTitle("License Activation")
-        self.setFixedSize(400, 200)
+        self.setFixedSize(400, 250)
         self.setModal(True)
         
         layout = QFormLayout()
         
-        # MAC address display
-        mac_address = self.license_manager.get_device_mac()
-        mac_label = QLabel(f"Device MAC: {mac_address}")
-        mac_label.setStyleSheet("color: #666; font-size: 10pt;")
+        # Device info display
+        device_info = self.license_manager.get_current_device_info()
+        
+        info_label = QLabel("Device Information:")
+        info_label.setStyleSheet("font-weight: bold; color: #2196F3; margin-bottom: 10px;")
+        layout.addRow("", info_label)
+        
+        mac_label = QLabel(f"MAC Address: {device_info['mac_address']}")
+        mac_label.setStyleSheet("color: #666; font-size: 10pt; font-family: monospace;")
         layout.addRow("", mac_label)
+        
+        # Show what the correct license key should be (for testing)
+        correct_key_label = QLabel(f"Correct Key: {device_info['license_key']}")
+        correct_key_label.setStyleSheet("color: #4CAF50; font-size: 9pt; font-family: monospace;")
+        layout.addRow("", correct_key_label)
         
         # License key input
         self.license_input = QLineEdit()
         self.license_input.setPlaceholderText("Enter license key (XXXX-XXXX-XXXX-XXXX)")
+        self.license_input.setStyleSheet("font-family: monospace; font-size: 10pt;")
         layout.addRow("License Key:", self.license_input)
+        
+        # Instructions
+        instructions = QLabel("Enter the license key for this device to activate the application.")
+        instructions.setStyleSheet("color: #666; font-size: 9pt; margin: 10px 0;")
+        instructions.setWordWrap(True)
+        layout.addRow("", instructions)
         
         # Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.validate_license)
+        buttons.accepted.connect(self.validate_and_activate_license)
         buttons.rejected.connect(self.reject)
         layout.addRow("", buttons)
         
         self.setLayout(layout)
-    
-    def validate_license(self):
-        license_key = self.license_input.text().strip()
-        mac_address = self.license_manager.get_device_mac()
         
-        if self.license_manager.validate_license(license_key, mac_address):
+        # Set focus to input field
+        self.license_input.setFocus()
+    
+    def validate_and_activate_license(self):
+        """Validate and activate the entered license key"""
+        license_key = self.license_input.text().strip()
+        
+        if not license_key:
+            QMessageBox.warning(self, "Empty License Key", "Please enter a license key!")
+            return
+        
+        # Use LicenseManager to handle all validation and activation
+        if self.license_manager.activate_license(license_key):
+            QMessageBox.information(self, "Success", "License activated successfully!")
             self.accept()
         else:
-            QMessageBox.warning(self, "Invalid License", "Invalid license key for this device!")
+            QMessageBox.warning(self, "Invalid License", 
+                              "Invalid license key for this device!\n\n"
+                              "Please check the license key and try again.")
+            self.license_input.selectAll()
+            self.license_input.setFocus()
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -61,30 +91,33 @@ class MainWindow(QMainWindow):
         self.db_manager = DatabaseManager()
         self.license_manager = LicenseManager()
         
+        # Set database manager for license operations
+        self.license_manager.set_db_manager(self.db_manager)
+        
         # Check license before initializing UI
         if not self.check_license():
+            logging.error("License validation failed, exiting application")
             sys.exit(1)
         
         self.init_ui()
         self.setup_auto_refresh()
     
     def check_license(self) -> bool:
-        """Check if the application is licensed"""
-        license_info = self.db_manager.get_license_info()
-        current_mac = self.license_manager.get_device_mac()
-        
-        if license_info and self.license_manager.validate_license(
-            license_info['license_key'], current_mac):
-            return True
-        
-        # Show license dialog
-        dialog = LicenseDialog(self.license_manager)
-        if dialog.exec_() == QDialog.Accepted:
-            license_key = dialog.license_input.text().strip()
-            self.db_manager.save_license(license_key, current_mac)
-            return True
-        
-        return False
+        """Check if the application is licensed - simplified to use LicenseManager"""
+        try:
+            # Use LicenseManager's high-level method
+            if self.license_manager.is_licensed():
+                return True
+            
+            # Show license dialog if not licensed
+            dialog = LicenseDialog(self.license_manager)
+            return dialog.exec_() == QDialog.Accepted
+            
+        except Exception as e:
+            logging.error(f"Error during license check: {e}")
+            QMessageBox.critical(None, "License Error", 
+                               f"An error occurred during license validation:\n{str(e)}")
+            return False
     
     def init_ui(self):
         self.setWindowTitle("Visitor Management System")
@@ -124,7 +157,7 @@ class MainWindow(QMainWindow):
         self.active_visitors_widget.visitor_checked_out.connect(self.refresh_all_widgets)
         
         # Status bar
-        self.statusBar().showMessage("Ready")
+        self.statusBar().showMessage("Ready - Licensed Application")
         
         # Menu bar
         self.create_menu_bar()
@@ -147,6 +180,19 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
+        # License menu (for testing)
+        license_menu = menubar.addMenu('License')
+        
+        # Show license info
+        license_info_action = QAction('License Information', self)
+        license_info_action.triggered.connect(self.show_license_info)
+        license_menu.addAction(license_info_action)
+        
+        # Revoke license (for testing)
+        revoke_license_action = QAction('Revoke License (Testing)', self)
+        revoke_license_action.triggered.connect(self.revoke_license_for_testing)
+        license_menu.addAction(revoke_license_action)
+        
         # Help menu
         help_menu = menubar.addMenu('Help')
         
@@ -154,6 +200,51 @@ class MainWindow(QMainWindow):
         about_action = QAction('About', self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+    
+    def show_license_info(self):
+        """Show current license information"""
+        try:
+            device_info = self.license_manager.get_current_device_info()
+            license_info = self.db_manager.get_license_info()
+            
+            info_text = f"""
+Current Device Information:
+MAC Address: {device_info['mac_address']}
+Expected License Key: {device_info['license_key']}
+
+Stored License Information:
+"""
+            if license_info:
+                info_text += f"""License Key: {license_info['license_key']}
+Device MAC: {license_info['device_mac']}
+Activation Date: {license_info['activation_date']}
+Status: {'Active' if license_info['is_active'] else 'Inactive'}
+Valid: {'Yes' if self.license_manager.is_licensed() else 'No'}"""
+            else:
+                info_text += "No license information stored."
+            
+            QMessageBox.information(self, "License Information", info_text)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error retrieving license info:\n{str(e)}")
+    
+    def revoke_license_for_testing(self):
+        """Revoke current license for testing purposes"""
+        reply = QMessageBox.question(self, 'Revoke License', 
+                                   'This will revoke the current license and require re-activation.\n'
+                                   'This is for testing purposes only.\n\n'
+                                   'Are you sure you want to continue?',
+                                   QMessageBox.Yes | QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            if self.license_manager.revoke_license():
+                QMessageBox.information(self, "Success", 
+                                      "License revoked successfully!\n"
+                                      "The application will now exit. "
+                                      "Restart to enter a new license.")
+                self.close()
+            else:
+                QMessageBox.critical(self, "Error", "Failed to revoke license!")
     
     def show_active_visitors(self):
         """Navigate to active visitors tab"""
@@ -181,7 +272,8 @@ class MainWindow(QMainWindow):
         QMessageBox.about(self, "About", 
                          "Visitor Management System v1.0\n\n"
                          "A modern desktop application for managing visitor records.\n"
-                         "Built with PyQt5 and SQLite.")
+                         "Built with PyQt5 and SQLite.\n\n"
+                         "Licensed Application - Hardware Bound Security")
     
     def closeEvent(self, event):
         """Handle application close event"""
@@ -190,6 +282,7 @@ class MainWindow(QMainWindow):
                                    QMessageBox.Yes | QMessageBox.No)
         
         if reply == QMessageBox.Yes:
+            logging.info("Application closing normally")
             event.accept()
         else:
             event.ignore()
