@@ -31,7 +31,7 @@ class LicenseDialog(QDialog):
         device_info = self.license_manager.get_current_device_info()
         
         info_label = QLabel("Device Information:")
-        info_label.setStyleSheet("font-weight: bold; color: #2196F3; margin-bottom: 10px;")
+        info_label.setStyleSheet("font-weight: bold; color: #441b48; margin-bottom: 10px;")
         layout.addRow("", info_label)
         
         mac_label = QLabel(f"MAC Address: {device_info['mac_address']}")
@@ -120,7 +120,7 @@ class MainWindow(QMainWindow):
             return False
     
     def init_ui(self):
-        self.setWindowTitle("Visitor Management System")
+        self.setWindowTitle("M-Neon VMS")
         self.setGeometry(100, 100, 1200, 800)
         
         # Apply main style
@@ -157,7 +157,7 @@ class MainWindow(QMainWindow):
         self.active_visitors_widget.visitor_checked_out.connect(self.refresh_all_widgets)
         
         # Status bar
-        self.statusBar().showMessage("Ready - Licensed Application")
+        self.statusBar().showMessage("M-Neon VMS - Ready - Licensed Application")
         
         # Menu bar
         self.create_menu_bar()
@@ -270,7 +270,7 @@ Valid: {'Yes' if self.license_manager.is_licensed() else 'No'}"""
     def show_about(self):
         """Show about dialog"""
         QMessageBox.about(self, "About", 
-                         "Visitor Management System v1.0\n\n"
+                         "M-Neon VMS v1.0\n\n"
                          "A modern desktop application for managing visitor records.\n"
                          "Built with PyQt5 and SQLite.\n\n"
                          "Licensed Application - Hardware Bound Security")

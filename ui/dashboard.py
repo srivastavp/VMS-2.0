@@ -6,7 +6,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from database import DatabaseManager
-from utils.styles import DASHBOARD_CARD_STYLE, BUTTON_STYLES
+from utils.styles import DASHBOARD_CARD_STYLE, BUTTON_STYLES, PRIMARY_COLOR
 
 class DashboardWidget(QWidget):
     active_visitors_clicked = pyqtSignal()
@@ -23,7 +23,7 @@ class DashboardWidget(QWidget):
         header_label = QLabel("Dashboard")
         header_label.setAlignment(Qt.AlignCenter)
         header_label.setFont(QFont("Arial", 16, QFont.Bold))
-        header_label.setStyleSheet("color: #2196F3; margin: 20px;")
+        header_label.setStyleSheet(f"color: {PRIMARY_COLOR}; margin: 20px;")
         layout.addWidget(header_label)
         
         # Metrics cards
@@ -74,12 +74,12 @@ class DashboardWidget(QWidget):
         card_style = DASHBOARD_CARD_STYLE
         
         if clickable:
-            card_style += """
-                QFrame:hover {
-                    border-color: #2196F3;
-                    background-color: #E3F2FD;
+            card_style += f"""
+                QFrame:hover {{
+                    border-color: {PRIMARY_COLOR};
+                    background-color: #e8dde9;
                     cursor: pointer;
-                }
+                }}
             """
         
         card.setStyleSheet(card_style)
@@ -95,7 +95,7 @@ class DashboardWidget(QWidget):
         value_label = QLabel(value)
         value_label.setAlignment(Qt.AlignCenter)
         value_label.setFont(QFont("Arial", 24, QFont.Bold))
-        value_label.setStyleSheet("color: #2196F3;")
+        value_label.setStyleSheet(f"color: {PRIMARY_COLOR};")
         
         layout.addWidget(title_label)
         layout.addWidget(value_label)
@@ -152,8 +152,8 @@ class DashboardWidget(QWidget):
         # Create plot
         ax = self.figure.add_subplot(111)
         ax.plot(dates, counts, marker='o', linewidth=2, markersize=6, 
-               color='#2196F3', markerfacecolor='#2196F3')
-        ax.fill_between(dates, counts, alpha=0.3, color='#2196F3')
+               color=PRIMARY_COLOR, markerfacecolor=PRIMARY_COLOR)
+        ax.fill_between(dates, counts, alpha=0.3, color=PRIMARY_COLOR)
         
         # Styling
         ax.set_title('Daily Check-ins This Month', fontsize=12, fontweight='bold')

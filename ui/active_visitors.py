@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QTableWidget, QTableWidgetIte
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 from database import DatabaseManager
-from utils.styles import BUTTON_STYLES
+from utils.styles import BUTTON_STYLES, PRIMARY_COLOR
 
 class ActiveVisitorsWidget(QWidget):
     visitor_checked_out = pyqtSignal()
@@ -21,7 +21,7 @@ class ActiveVisitorsWidget(QWidget):
         
         header_label = QLabel("Active Visitors")
         header_label.setFont(QFont("Arial", 16, QFont.Bold))
-        header_label.setStyleSheet("color: #2196F3;")
+        header_label.setStyleSheet(f"color: {PRIMARY_COLOR};")
         header_layout.addWidget(header_label)
         
         # Refresh button
@@ -39,10 +39,10 @@ class ActiveVisitorsWidget(QWidget):
         
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Name", "Vehicle", "Organization", "Person Visited", 
-            "Purpose", "Check-in Time", "Action"
+            "ID", "Name", "Category", "NRIC", "HP No.", "Pass", 
+            "Destination", "Check-in Time", "Person Visited", "Action"
         ])
         
         # Hide ID column
@@ -55,14 +55,17 @@ class ActiveVisitorsWidget(QWidget):
         
         # Adjust column widths
         header = self.table.horizontalHeader()
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
         header.setSectionResizeMode(1, QHeaderView.Stretch)  # Name
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Vehicle
-        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Organization
-        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Person Visited
-        header.setSectionResizeMode(5, QHeaderView.Stretch)  # Purpose
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Check-in Time
-        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # Action
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Category
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # NRIC
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # HP No.
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Pass
+        header.setSectionResizeMode(6, QHeaderView.Stretch)  # Destination
+        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # Check-in Time
+        header.setSectionResizeMode(8, QHeaderView.Stretch)  # Person Visited
+        header.setSectionResizeMode(9, QHeaderView.Fixed)  # Action - Fixed width for button visibility
+        self.table.setColumnWidth(9, 120)  # Set fixed width for Action column
         
         layout.addWidget(self.table)
         
@@ -85,20 +88,30 @@ class ActiveVisitorsWidget(QWidget):
             row = self.table.rowCount()
             self.table.insertRow(row)
             
-            # Add data
-            self.table.setItem(row, 0, QTableWidgetItem(str(visitor['id'])))
-            self.table.setItem(row, 1, QTableWidgetItem(visitor['name']))
-            self.table.setItem(row, 2, QTableWidgetItem(visitor['vehicle_number'] or ''))
-            self.table.setItem(row, 3, QTableWidgetItem(visitor['organization'] or ''))
-            self.table.setItem(row, 4, QTableWidgetItem(visitor['person_visited']))
-            self.table.setItem(row, 5, QTableWidgetItem(visitor['purpose']))
-            self.table.setItem(row, 6, QTableWidgetItem(visitor['check_in_time']))
+            # Add data (with backward compatibility)
+            self.table.setItem(row, 0, QTableWidgetItem(str(visitor.get('id', ''))))
+            self.table.setItem(row, 1, QTableWidgetItem(visitor.get('name', '')))
+            self.table.setItem(row, 2, QTableWidgetItem(visitor.get('category', '')))
+            self.table.setItem(row, 3, QTableWidgetItem(visitor.get('nric', '') or ''))
+            self.table.setItem(row, 4, QTableWidgetItem(visitor.get('hp_no', '') or ''))
+            self.table.setItem(row, 5, QTableWidgetItem(visitor.get('pass_number', '') or ''))
+            self.table.setItem(row, 6, QTableWidgetItem(visitor.get('destination', '') or ''))
+            self.table.setItem(row, 7, QTableWidgetItem(visitor.get('check_in_time', '')))
+            self.table.setItem(row, 8, QTableWidgetItem(visitor.get('person_visited', '')))
             
-            # Add checkout button
+            # Add checkout button with proper sizing for visibility
             checkout_btn = QPushButton("Check Out")
-            checkout_btn.setStyleSheet(BUTTON_STYLES['warning'])
-            checkout_btn.clicked.connect(lambda checked, v_id=visitor['id']: self.checkout_visitor(v_id))
-            self.table.setCellWidget(row, 7, checkout_btn)
+            checkout_btn.setStyleSheet(BUTTON_STYLES['warning'] + """
+                QPushButton {
+                    padding: 8px 16px;
+                    min-width: 100px;
+                    min-height: 30px;
+                    white-space: nowrap;
+                    font-size: 9pt;
+                }
+            """)
+            checkout_btn.clicked.connect(lambda checked, v_id=visitor.get('id'): self.checkout_visitor(v_id))
+            self.table.setCellWidget(row, 9, checkout_btn)
     
     def checkout_visitor(self, visitor_id: int):
         # Confirm checkout

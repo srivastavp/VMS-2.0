@@ -28,9 +28,9 @@ def main():
     
     # Create application
     app = QApplication(sys.argv)
-    app.setApplicationName("Visitor Management System")
+    app.setApplicationName("M-Neon VMS")
     app.setApplicationVersion("1.0")
-    app.setOrganizationName("VMS Solutions")
+    app.setOrganizationName("M-Neon Solutions")
     
     # Set application font
     font = QFont("Segoe UI", 9)

@@ -1,206 +1,217 @@
 """
-Modern styling for the Visitor Management System
+Modern styling for M-Neon VMS
 """
 
-MAIN_STYLE = """
-QMainWindow {
-    background-color: #f5f5f5;
-}
+# Primary brand color
+PRIMARY_COLOR = "#7C5F7E"
+PRIMARY_HOVER = "#8d6f8f"
+PRIMARY_PRESSED = "#6b4f6d"
+PRIMARY_LIGHT = "#9d8fa0"
+PRIMARY_LIGHTEST = "#f0ebf2"
 
-QWidget {
+MAIN_STYLE = f"""
+QMainWindow {{
+    background-color: #f5f5f5;
+}}
+
+QWidget {{
     font-family: 'Segoe UI', Arial, sans-serif;
     font-size: 9pt;
-}
+}}
 
-QTabWidget::pane {
+QTabWidget::pane {{
     border: 1px solid #ddd;
     background-color: white;
-}
+}}
 
-QTabWidget::tab-bar {
+QTabWidget::tab-bar {{
     alignment: left;
-}
+}}
 
-QTabBar::tab {
+QTabBar::tab {{
     background-color: #e0e0e0;
     border: 1px solid #ccc;
     padding: 8px 16px;
     margin-right: 2px;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
-}
+}}
 
-QTabBar::tab:selected {
-    background-color: #2196F3;
+QTabBar::tab:selected {{
+    background-color: {PRIMARY_COLOR};
     color: white;
-}
+}}
 
-QTabBar::tab:hover {
-    background-color: #64B5F6;
+QTabBar::tab:hover {{
+    background-color: {PRIMARY_LIGHT};
     color: white;
-}
+}}
 
-QPushButton {
-    background-color: #2196F3;
+QPushButton {{
+    background-color: {PRIMARY_COLOR};
     color: white;
     border: none;
-    padding: 8px 16px;
+    padding: 10px 20px;
     border-radius: 4px;
     font-weight: bold;
-}
+    min-width: 80px;
+    white-space: nowrap;
+}}
 
-QPushButton:hover {
-    background-color: #1976D2;
-}
+QPushButton:hover {{
+    background-color: {PRIMARY_HOVER};
+}}
 
-QPushButton:pressed {
-    background-color: #0D47A1;
-}
+QPushButton:pressed {{
+    background-color: {PRIMARY_PRESSED};
+}}
 
-QPushButton:disabled {
+QPushButton:disabled {{
     background-color: #ccc;
     color: #666;
-}
+}}
 
-QLineEdit {
+QLineEdit {{
     border: 2px solid #ddd;
     border-radius: 4px;
     padding: 6px;
     font-size: 9pt;
-}
+}}
 
-QLineEdit:focus {
-    border-color: #2196F3;
-}
+QLineEdit:focus {{
+    border-color: {PRIMARY_COLOR};
+}}
 
-QTextEdit {
+QTextEdit {{
     border: 2px solid #ddd;
     border-radius: 4px;
     padding: 6px;
     font-size: 9pt;
-}
+}}
 
-QTextEdit:focus {
-    border-color: #2196F3;
-}
+QTextEdit:focus {{
+    border-color: {PRIMARY_COLOR};
+}}
 
-QLabel {
+QLabel {{
     color: #333;
     font-weight: bold;
-}
+}}
 
-QTableWidget {
+QTableWidget {{
     gridline-color: #e0e0e0;
     background-color: white;
     alternate-background-color: #f9f9f9;
-}
+}}
 
-QTableWidget::item {
+QTableWidget::item {{
     padding: 6px;
     border-bottom: 1px solid #e0e0e0;
-}
+}}
 
-QTableWidget::item:selected {
-    background-color: #E3F2FD;
-    color: #1976D2;
-}
+QTableWidget::item:selected {{
+    background-color: {PRIMARY_LIGHTEST};
+    color: {PRIMARY_PRESSED};
+}}
 
-QHeaderView::section {
-    background-color: #2196F3;
+QHeaderView::section {{
+    background-color: {PRIMARY_COLOR};
     color: white;
     padding: 8px;
     border: none;
     font-weight: bold;
-}
+}}
 
-QGroupBox {
+QGroupBox {{
     font-weight: bold;
     border: 2px solid #ddd;
     border-radius: 4px;
     margin-top: 10px;
     padding-top: 10px;
-}
+}}
 
-QGroupBox::title {
+QGroupBox::title {{
     subcontrol-origin: margin;
     left: 10px;
     padding: 0 5px 0 5px;
-    color: #2196F3;
-}
+    color: {PRIMARY_COLOR};
+}}
 
-QDateEdit {
+QDateEdit {{
     border: 2px solid #ddd;
     border-radius: 4px;
     padding: 6px;
     font-size: 9pt;
-}
+}}
 
-QDateEdit:focus {
-    border-color: #2196F3;
-}
+QDateEdit:focus {{
+    border-color: {PRIMARY_COLOR};
+}}
 
-QComboBox {
+QComboBox {{
     border: 2px solid #ddd;
     border-radius: 4px;
     padding: 6px;
     font-size: 9pt;
-}
+}}
 
-QComboBox:focus {
-    border-color: #2196F3;
-}
+QComboBox:focus {{
+    border-color: {PRIMARY_COLOR};
+}}
 
-QComboBox::drop-down {
+QComboBox::drop-down {{
     border: none;
     width: 20px;
-}
+}}
 
-QComboBox::down-arrow {
+QComboBox::down-arrow {{
     image: none;
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
     border-top: 5px solid #666;
     margin-top: 2px;
-}
+}}
 
-QStatusBar {
-    background-color: #2196F3;
+QStatusBar {{
+    background-color: {PRIMARY_COLOR};
     color: white;
     font-weight: bold;
-}
+}}
 """
 
-DASHBOARD_CARD_STYLE = """
-QFrame {
+DASHBOARD_CARD_STYLE = f"""
+QFrame {{
     background-color: white;
     border: 1px solid #e0e0e0;
     border-radius: 8px;
     padding: 16px;
-}
+}}
 
-QFrame:hover {
-    border-color: #2196F3;
-    box-shadow: 0 4px 8px rgba(33, 150, 243, 0.2);
-}
+QFrame:hover {{
+    border-color: {PRIMARY_COLOR};
+    box-shadow: 0 4px 8px rgba(68, 27, 72, 0.2);
+}}
 """
 
 BUTTON_STYLES = {
-    'primary': """
-        QPushButton {
-            background-color: #2196F3;
+    'primary': f"""
+        QPushButton {{
+            background-color: {PRIMARY_COLOR};
             color: white;
             border: none;
             padding: 10px 20px;
             border-radius: 4px;
             font-weight: bold;
             font-size: 9pt;
-        }
-        QPushButton:hover {
-            background-color: #1976D2;
-        }
-        QPushButton:pressed {
-            background-color: #0D47A1;
-        }
+            min-width: 80px;
+            white-space: nowrap;
+        }}
+        QPushButton:hover {{
+            background-color: {PRIMARY_HOVER};
+        }}
+        QPushButton:pressed {{
+            background-color: {PRIMARY_PRESSED};
+        }}
     """,
     'success': """
         QPushButton {
@@ -211,6 +222,8 @@ BUTTON_STYLES = {
             border-radius: 4px;
             font-weight: bold;
             font-size: 9pt;
+            min-width: 80px;
+            white-space: nowrap;
         }
         QPushButton:hover {
             background-color: #45a049;
@@ -225,6 +238,8 @@ BUTTON_STYLES = {
             border-radius: 4px;
             font-weight: bold;
             font-size: 9pt;
+            min-width: 80px;
+            white-space: nowrap;
         }
         QPushButton:hover {
             background-color: #f57c00;
@@ -239,6 +254,8 @@ BUTTON_STYLES = {
             border-radius: 4px;
             font-weight: bold;
             font-size: 9pt;
+            min-width: 80px;
+            white-space: nowrap;
         }
         QPushButton:hover {
             background-color: #d32f2f;

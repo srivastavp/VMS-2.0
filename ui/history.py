@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QTableWidget, QTableWidgetIte
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 from database import DatabaseManager
-from utils.styles import BUTTON_STYLES
+from utils.styles import BUTTON_STYLES, PRIMARY_COLOR
 
 class HistoryWidget(QWidget):
     def __init__(self, db_manager: DatabaseManager):
@@ -19,7 +19,7 @@ class HistoryWidget(QWidget):
         
         header_label = QLabel("Today's History")
         header_label.setFont(QFont("Arial", 16, QFont.Bold))
-        header_label.setStyleSheet("color: #2196F3;")
+        header_label.setStyleSheet(f"color: {PRIMARY_COLOR};")
         header_layout.addWidget(header_label)
         
         # Refresh button
@@ -81,20 +81,20 @@ class HistoryWidget(QWidget):
             row = self.table.rowCount()
             self.table.insertRow(row)
             
-            # Add data
-            self.table.setItem(row, 0, QTableWidgetItem(record['name']))
-            self.table.setItem(row, 1, QTableWidgetItem(record['vehicle_number'] or ''))
-            self.table.setItem(row, 2, QTableWidgetItem(record['organization'] or ''))
-            self.table.setItem(row, 3, QTableWidgetItem(record['purpose']))
-            self.table.setItem(row, 4, QTableWidgetItem(record['check_in_time']))
+            # Add data (with safe access using .get())
+            self.table.setItem(row, 0, QTableWidgetItem(record.get('name', '')))
+            self.table.setItem(row, 1, QTableWidgetItem(record.get('vehicle_number', '') or ''))
+            self.table.setItem(row, 2, QTableWidgetItem(record.get('organization', '') or ''))
+            self.table.setItem(row, 3, QTableWidgetItem(record.get('purpose', '')))
+            self.table.setItem(row, 4, QTableWidgetItem(record.get('check_in_time', '')))
             
             # Check-out time
-            checkout_time = record['check_out_time'] if record['check_out_time'] else 'Still Active'
+            checkout_time = record.get('check_out_time', '') if record.get('check_out_time') else 'Still Active'
             self.table.setItem(row, 5, QTableWidgetItem(checkout_time))
             
             # Duration
-            if record['duration']:
-                duration = record['duration']
+            duration = record.get('duration')
+            if duration:
                 if duration > 60:
                     hours = duration // 60
                     minutes = duration % 60
