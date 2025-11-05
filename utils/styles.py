@@ -199,12 +199,12 @@ BUTTON_STYLES = {
             background-color: {PRIMARY_COLOR};
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 12px 24px;
             border-radius: 4px;
             font-weight: bold;
-            font-size: 9pt;
-            min-width: 80px;
-            white-space: nowrap;
+            font-size: 11pt;
+            min-width: 100px;
+            min-height: 42px;
         }}
         QPushButton:hover {{
             background-color: {PRIMARY_HOVER};
@@ -212,21 +212,29 @@ BUTTON_STYLES = {
         QPushButton:pressed {{
             background-color: {PRIMARY_PRESSED};
         }}
+        QPushButton:disabled {{
+            background-color: #ccc;
+            color: #666;
+        }}
     """,
     'success': """
         QPushButton {
             background-color: #4CAF50;
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 12px 24px;
             border-radius: 4px;
             font-weight: bold;
-            font-size: 9pt;
-            min-width: 80px;
-            white-space: nowrap;
+            font-size: 11pt;
+            min-width: 100px;
+            min-height: 42px;
         }
         QPushButton:hover {
             background-color: #45a049;
+        }
+        QPushButton:disabled {
+            background-color: #ccc;
+            color: #666;
         }
     """,
     'warning': """
@@ -234,15 +242,19 @@ BUTTON_STYLES = {
             background-color: #ff9800;
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 12px 24px;
             border-radius: 4px;
             font-weight: bold;
-            font-size: 9pt;
-            min-width: 80px;
-            white-space: nowrap;
+            font-size: 11pt;
+            min-width: 100px;
+            min-height: 42px;
         }
         QPushButton:hover {
             background-color: #f57c00;
+        }
+        QPushButton:disabled {
+            background-color: #ccc;
+            color: #666;
         }
     """,
     'danger': """
@@ -250,15 +262,19 @@ BUTTON_STYLES = {
             background-color: #f44336;
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 12px 24px;
             border-radius: 4px;
             font-weight: bold;
-            font-size: 9pt;
-            min-width: 80px;
-            white-space: nowrap;
+            font-size: 11pt;
+            min-width: 100px;
+            min-height: 42px;
         }
         QPushButton:hover {
             background-color: #d32f2f;
+        }
+        QPushButton:disabled {
+            background-color: #ccc;
+            color: #666;
         }
     """
 }

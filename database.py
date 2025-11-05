@@ -203,6 +203,31 @@ class DatabaseManager:
             logging.error(f"Error finding existing visitor: {e}")
             return None
     
+    def find_existing_visitor_by_name(self, first_name: str, last_name: str) -> Optional[Dict]:
+        """Find an existing visitor by First Name and Last Name"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT nric, hp_no, first_name, last_name, name, category,
+                           purpose, destination, company, vehicle_number, remarks
+                    FROM visitors
+                    WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?)
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (first_name, last_name))
+                
+                result = cursor.fetchone()
+                if result:
+                    columns = ['nric', 'hp_no', 'first_name', 'last_name', 'name', 'category',
+                              'purpose', 'destination', 'company', 'vehicle_number', 'remarks']
+                    return dict(zip(columns, result))
+                return None
+        except sqlite3.Error as e:
+            logging.error(f"Error finding existing visitor by name: {e}")
+            return None
+    
     def generate_pass_number(self) -> str:
         """Generate a unique pass number in format VMS-YYYYMMDD-XXXX"""
         try:

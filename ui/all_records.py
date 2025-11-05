@@ -1,12 +1,14 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
                             QPushButton, QHBoxLayout, QLabel, QDateEdit, QMessageBox,
-                            QHeaderView, QGroupBox, QFormLayout, QFileDialog)
+                            QHeaderView, QGroupBox, QFormLayout, QFileDialog, QLineEdit, QComboBox)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QFont
 from database import DatabaseManager
 from utils.styles import BUTTON_STYLES, PRIMARY_COLOR
 import pandas as pd
 from datetime import datetime, date
+import logging
+import traceback
 import os
 
 class AllRecordsWidget(QWidget):
@@ -26,6 +28,7 @@ class AllRecordsWidget(QWidget):
         
         # Filters
         filter_group = QGroupBox("Filter Options")
+        filter_group.setStyleSheet("background-color: white;")
         filter_layout = QFormLayout()
         
         # Date range filters
@@ -38,6 +41,24 @@ class AllRecordsWidget(QWidget):
         self.end_date.setDate(QDate.currentDate())
         self.end_date.setCalendarPopup(True)
         filter_layout.addRow("End Date:", self.end_date)
+        
+        # Organization (Company) filter
+        self.organization_filter = QLineEdit()
+        self.organization_filter.setPlaceholderText("Enter company/organization name")
+        self.organization_filter.setStyleSheet("font-size: 10pt; padding: 6px;")
+        filter_layout.addRow("Organization:", self.organization_filter)
+        
+        # HP No filter
+        self.hp_no_filter = QLineEdit()
+        self.hp_no_filter.setPlaceholderText("Enter HP number")
+        self.hp_no_filter.setStyleSheet("font-size: 10pt; padding: 6px;")
+        filter_layout.addRow("HP No.:", self.hp_no_filter)
+        
+        # Person Visited filter
+        self.person_visited_filter = QLineEdit()
+        self.person_visited_filter.setPlaceholderText("Enter person visited name")
+        self.person_visited_filter.setStyleSheet("font-size: 10pt; padding: 6px;")
+        filter_layout.addRow("Person Visited:", self.person_visited_filter)
         
         # Filter buttons
         button_layout = QHBoxLayout()
@@ -66,12 +87,13 @@ class AllRecordsWidget(QWidget):
         self.status_label.setStyleSheet("color: #666; font-size: 10pt; margin: 10px 0;")
         layout.addWidget(self.status_label)
         
-        # Table
+        # Table with all columns
         self.table = QTableWidget()
-        self.table.setColumnCount(9)
+        self.table.setColumnCount(15)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Name", "Vehicle", "Organization", "Person Visited",
-            "Purpose", "Check-in Time", "Check-out Time", "Duration"
+            "ID", "NRIC", "HP No.", "First Name", "Last Name", "Category", "Purpose",
+            "Destination", "Company", "Vehicle No.", "Person Visited", "Remarks",
+            "Check-in Time", "Check-out Time", "Duration"
         ])
         
         # Hide ID column
@@ -81,18 +103,28 @@ class AllRecordsWidget(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSortingEnabled(True)
+        self.table.setStyleSheet("background-color: white;")
+        
+        # Set row height
+        self.table.verticalHeader().setDefaultSectionSize(45)
         
         # Adjust column widths
         header = self.table.horizontalHeader()
         header.setStretchLastSection(True)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Name
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Vehicle
-        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Organization
-        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Person Visited
-        header.setSectionResizeMode(5, QHeaderView.Stretch)  # Purpose
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Check-in Time
-        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # Check-out Time
-        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)  # Duration
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # NRIC
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # HP No
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # First Name
+        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Last Name
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Category
+        header.setSectionResizeMode(6, QHeaderView.Stretch)  # Purpose
+        header.setSectionResizeMode(7, QHeaderView.Stretch)  # Destination
+        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)  # Company
+        header.setSectionResizeMode(9, QHeaderView.ResizeToContents)  # Vehicle No
+        header.setSectionResizeMode(10, QHeaderView.Stretch)  # Person Visited
+        header.setSectionResizeMode(11, QHeaderView.ResizeToContents)  # Remarks
+        header.setSectionResizeMode(12, QHeaderView.ResizeToContents)  # Check-in Time
+        header.setSectionResizeMode(13, QHeaderView.ResizeToContents)  # Check-out Time
+        header.setSectionResizeMode(14, QHeaderView.ResizeToContents)  # Duration
         
         layout.addWidget(self.table)
         
@@ -102,6 +134,7 @@ class AllRecordsWidget(QWidget):
         self.refresh_data()
     
     def apply_filter(self):
+        """Apply filters with date range and optional text filters"""
         start_date = self.start_date.date().toPython()
         end_date = self.end_date.date().toPython()
         
@@ -109,58 +142,101 @@ class AllRecordsWidget(QWidget):
             QMessageBox.warning(self, "Invalid Date Range", "Start date cannot be after end date!")
             return
         
-        self.refresh_data(start_date, end_date)
+        # Get filter values
+        organization = self.organization_filter.text().strip()
+        hp_no = self.hp_no_filter.text().strip()
+        person_visited = self.person_visited_filter.text().strip()
+        
+        self.refresh_data(start_date, end_date, organization, hp_no, person_visited)
     
     def clear_filter(self):
+        """Clear all filters and reset to default view"""
         self.start_date.setDate(QDate.currentDate().addDays(-30))
         self.end_date.setDate(QDate.currentDate())
+        self.organization_filter.clear()
+        self.hp_no_filter.clear()
+        self.person_visited_filter.clear()
         self.refresh_data()
     
-    def refresh_data(self, start_date=None, end_date=None):
-        records = self.db_manager.get_all_records(start_date, end_date)
-        
-        # Update status label
-        if start_date and end_date:
-            self.status_label.setText(f"Showing {len(records)} records from {start_date} to {end_date}")
-        else:
-            self.status_label.setText(f"Showing all {len(records)} records")
-        
-        # Clear table
-        self.table.setRowCount(0)
-        
-        # Populate table
-        for record in records:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
+    def refresh_data(self, start_date=None, end_date=None, organization=None, hp_no=None, person_visited=None):
+        """Refresh records with advanced filtering"""
+        try:
+            # Get all records within date range
+            records = self.db_manager.get_all_records(start_date, end_date)
             
-            # Add data (with safe access using .get())
-            self.table.setItem(row, 0, QTableWidgetItem(str(record.get('id', ''))))
-            self.table.setItem(row, 1, QTableWidgetItem(record.get('name', '')))
-            self.table.setItem(row, 2, QTableWidgetItem(record.get('vehicle_number', '') or ''))
-            self.table.setItem(row, 3, QTableWidgetItem(record.get('organization', '') or ''))
-            self.table.setItem(row, 4, QTableWidgetItem(record.get('person_visited', '')))
-            self.table.setItem(row, 5, QTableWidgetItem(record.get('purpose', '')))
-            self.table.setItem(row, 6, QTableWidgetItem(record.get('check_in_time', '')))
+            # Apply additional filters
+            if organization:
+                records = [r for r in records if r.get('company') and organization.lower() in r.get('company', '').lower()]
             
-            # Check-out time
-            checkout_time = record.get('check_out_time', '') if record.get('check_out_time') else 'Still Active'
-            self.table.setItem(row, 7, QTableWidgetItem(checkout_time))
+            if hp_no:
+                records = [r for r in records if r.get('hp_no') and hp_no.lower() in r.get('hp_no', '').lower()]
             
-            # Duration
-            duration = record.get('duration')
-            if duration:
-                if duration > 60:
+            if person_visited:
+                records = [r for r in records if r.get('person_visited') and person_visited.lower() in r.get('person_visited', '').lower()]
+            
+            # Update status label
+            filter_info = []
+            if start_date and end_date:
+                filter_info.append(f"{start_date} to {end_date}")
+            if organization:
+                filter_info.append(f"Organization: {organization}")
+            if hp_no:
+                filter_info.append(f"HP No: {hp_no}")
+            if person_visited:
+                filter_info.append(f"Person Visited: {person_visited}")
+            
+            if filter_info:
+                self.status_label.setText(f"Showing {len(records)} records | Filters: {', '.join(filter_info)}")
+            else:
+                self.status_label.setText(f"Showing all {len(records)} records")
+            
+            # Clear table
+            self.table.setRowCount(0)
+            
+            # Populate table
+            for record in records:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                
+                # Add all data columns
+                self.table.setItem(row, 0, QTableWidgetItem(str(record.get('id', ''))))
+                self.table.setItem(row, 1, QTableWidgetItem(record.get('nric', '') or ''))
+                self.table.setItem(row, 2, QTableWidgetItem(record.get('hp_no', '') or ''))
+                self.table.setItem(row, 3, QTableWidgetItem(record.get('first_name', '') or ''))
+                self.table.setItem(row, 4, QTableWidgetItem(record.get('last_name', '') or ''))
+                self.table.setItem(row, 5, QTableWidgetItem(record.get('category', '') or ''))
+                self.table.setItem(row, 6, QTableWidgetItem(record.get('purpose', '') or ''))
+                self.table.setItem(row, 7, QTableWidgetItem(record.get('destination', '') or ''))
+                self.table.setItem(row, 8, QTableWidgetItem(record.get('company', '') or ''))
+                self.table.setItem(row, 9, QTableWidgetItem(record.get('vehicle_number', '') or ''))
+                self.table.setItem(row, 10, QTableWidgetItem(record.get('person_visited', '') or ''))
+                self.table.setItem(row, 11, QTableWidgetItem(record.get('remarks', '') or ''))
+                self.table.setItem(row, 12, QTableWidgetItem(record.get('check_in_time', '')))
+                
+                # Check-out time
+                checkout_time = record.get('check_out_time', '') if record.get('check_out_time') else 'Still Active'
+                self.table.setItem(row, 13, QTableWidgetItem(checkout_time))
+                
+                # Duration
+                duration = record.get('duration')
+                if duration and duration > 0:
                     hours = duration // 60
                     minutes = duration % 60
-                    duration_text = f"{hours}h {minutes}m"
+                    duration_text = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
+                elif record.get('check_out_time'):
+                    duration_text = "0m"
                 else:
-                    duration_text = f"{duration}m"
-            else:
-                duration_text = 'Active'
+                    duration_text = 'Active'
+                
+                self.table.setItem(row, 14, QTableWidgetItem(duration_text))
             
-            self.table.setItem(row, 8, QTableWidgetItem(duration_text))
+            logging.info(f"Refreshed all records table: {len(records)} records")
+        except Exception as e:
+            logging.error(f"Error refreshing all records: {traceback.format_exc()}")
+            QMessageBox.critical(self, "Error", "Failed to refresh records. Please try again.")
     
     def export_to_excel(self):
+        """Export current table view to Excel"""
         if self.table.rowCount() == 0:
             QMessageBox.warning(self, "No Data", "No records to export!")
             return
@@ -197,6 +273,8 @@ class AllRecordsWidget(QWidget):
             df.to_excel(file_path, index=False, engine='openpyxl')
             
             QMessageBox.information(self, "Success", f"Records exported successfully to:\n{file_path}")
+            logging.info(f"Exported {len(data)} records to {file_path}")
             
         except Exception as e:
+            logging.error(f"Export error: {traceback.format_exc()}")
             QMessageBox.critical(self, "Export Error", f"Failed to export records:\n{str(e)}")
