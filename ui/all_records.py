@@ -135,8 +135,8 @@ class AllRecordsWidget(QWidget):
     
     def apply_filter(self):
         """Apply filters with date range and optional text filters"""
-        start_date = self.start_date.date().toPython()
-        end_date = self.end_date.date().toPython()
+        start_date = self.start_date.date().toPyDate()
+        end_date = self.end_date.date().toPyDate()
         
         if start_date > end_date:
             QMessageBox.warning(self, "Invalid Date Range", "Start date cannot be after end date!")

@@ -1,25 +1,63 @@
 import sqlite3
 import os
+from pathlib import Path
 from datetime import datetime, date
 from typing import List, Dict, Optional, Tuple
 import logging
+import uuid
+import re
+
+
+# -------------------------
+# DEVICE IDENTIFIER
+# -------------------------
+def get_device_mac() -> str:
+    """Return unique machine identifier (MAC-based)."""
+    return hex(uuid.getnode()).upper()
+
+
+# -------------------------
+# REGEXP SUPPORT FOR SQLITE
+# -------------------------
+def regexp(pattern, value):
+    if value is None:
+        return False
+    return re.match(pattern, value) is not None
+
 
 class DatabaseManager:
-    def __init__(self, db_path: str = "visitor_management.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+
+        # -------------------------
+        # Store DB per machine
+        # -------------------------
+        if db_path is None:
+            appdata = Path(os.getenv("APPDATA")) / "M-Neo-VMS"
+            appdata.mkdir(parents=True, exist_ok=True)
+            db_path = appdata / "visitor_management.db"
+
+        self.db_path = str(db_path)
+
+        # Enable SQLite REGEXP
+        conn = sqlite3.connect(self.db_path)
+        conn.create_function("REGEXP", 2, regexp)
+        conn.close()
+
         self.init_database()
-    
+        self._verify_device_identity()
+
+    # -------------------------------------------------------
     def get_connection(self):
-        """Get database connection for external use"""
         return sqlite3.connect(self.db_path)
-    
+
+    # -------------------------------------------------------
+    # DATABASE INITIALIZATION
+    # -------------------------------------------------------
     def init_database(self):
-        """Initialize the database with required tables"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
-                # Create visitors table with all required fields
+
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS visitors (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,11 +81,7 @@ class DatabaseManager:
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
-                
-                # Migrate existing data if needed
-                self._migrate_database(cursor)
-                
-                # Create license table
+
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS license (
                         id INTEGER PRIMARY KEY,
@@ -57,263 +91,238 @@ class DatabaseManager:
                         is_active BOOLEAN DEFAULT 1
                     )
                 ''')
-                
+
                 conn.commit()
                 logging.info("Database initialized successfully")
+
         except sqlite3.Error as e:
             logging.error(f"Database initialization error: {e}")
-    
-    def _migrate_database(self, cursor):
-        """Migrate existing database schema to new schema"""
+
+    # -------------------------------------------------------
+    # DEVICE BINDING LOGIC
+    # -------------------------------------------------------
+    def _verify_device_identity(self):
+        """If DB was copied to another machine → reset visitor data."""
+        current_mac = get_device_mac()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT device_mac FROM license WHERE id = 1")
+            row = cursor.fetchone()
+
+            if not row:
+                cursor.execute("INSERT INTO license (id, license_key, device_mac) VALUES (1, '', ?)", (current_mac,))
+                conn.commit()
+                return
+
+            stored_mac = row[0]
+
+            if stored_mac != current_mac:
+                logging.warning("⚠ Database copied from a different machine — Resetting visitor records.")
+                cursor.execute("DELETE FROM visitors")
+                cursor.execute("UPDATE license SET device_mac=? WHERE id=1", (current_mac,))
+                conn.commit()
+                logging.info("✅ Reset complete — Database now bound to this device.")
+
+    # -------------------------------------------------------
+    # VALIDATION
+    # -------------------------------------------------------
+    @staticmethod
+    def validate_nric(nric: str) -> bool:
+        return bool(re.match(r"^[STFG][0-9]{7}[A-Z]$", nric.upper()))
+
+    @staticmethod
+    def validate_hp(hp_no: str) -> bool:
+        return hp_no.isdigit() and len(hp_no) == 8
+
+    # -------------------------------------------------------
+    # ADD VISITOR (includes validation)
+    # -------------------------------------------------------
+    def add_visitor(self, **kwargs) -> bool:
         try:
-            # Check if new columns exist
-            cursor.execute("PRAGMA table_info(visitors)")
-            columns = [col[1] for col in cursor.fetchall()]
-            
-            # Add new columns if they don't exist
-            new_columns = {
-                'nric': 'TEXT',
-                'hp_no': 'TEXT',
-                'first_name': 'TEXT',
-                'last_name': 'TEXT',
-                'category': 'TEXT',
-                'destination': 'TEXT',
-                'company': 'TEXT',
-                'pass_number': 'TEXT',
-                'remarks': 'TEXT'
-            }
-            
-            for col_name, col_type in new_columns.items():
-                if col_name not in columns:
-                    try:
-                        cursor.execute(f'ALTER TABLE visitors ADD COLUMN {col_name} {col_type}')
-                        logging.info(f"Added column {col_name} to visitors table")
-                    except sqlite3.Error as e:
-                        logging.warning(f"Could not add column {col_name}: {e}")
-            
-            # Migrate existing name data to first_name and last_name if needed
-            if 'first_name' in columns:
-                cursor.execute('''
-                    UPDATE visitors 
-                    SET first_name = name, last_name = ''
-                    WHERE (first_name IS NULL OR first_name = '') AND name IS NOT NULL
-                ''')
-                
-        except sqlite3.Error as e:
-            logging.error(f"Database migration error: {e}")
-    
-    def add_visitor(self, nric: str = None, hp_no: str = None, first_name: str = None,
-                   last_name: str = None, category: str = None, purpose: str = None,
-                   destination: str = None, company: str = None, vehicle_number: str = None,
-                   pass_number: str = None, remarks: str = None, person_visited: str = None,
-                   name: str = None, organization: str = None, check_in_time: datetime = None) -> bool:
-        """Add a new visitor to the database with explicit timestamp"""
-        try:
+            if kwargs.get("nric"):
+                kwargs["nric"] = kwargs["nric"].upper()
+                if not self.validate_nric(kwargs["nric"]):
+                    logging.warning("Rejected invalid NRIC format.")
+                    return False
+
+            if kwargs.get("hp_no") and not self.validate_hp(kwargs["hp_no"]):
+                logging.warning("Rejected invalid HP number format.")
+                return False
+
+            check_in_time = kwargs.get("check_in_time", datetime.now())
+            kwargs["check_in_time"] = check_in_time.strftime('%Y-%m-%d %H:%M:%S')
+
+            if not kwargs.get("name"):
+                fn = kwargs.get("first_name", "")
+                ln = kwargs.get("last_name", "")
+                kwargs["name"] = f"{fn} {ln}".strip()
+
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
-                # Use explicit datetime.now() for consistent timestamp
-                if check_in_time is None:
-                    check_in_time = datetime.now()
-                
-                # Format timestamp in ISO format for consistency
-                check_in_time_str = check_in_time.strftime('%Y-%m-%d %H:%M:%S')
-                
-                # Build full name if separate first/last provided
-                if not name:
-                    if first_name and last_name:
-                        name = f"{first_name} {last_name}".strip()
-                    elif first_name:
-                        name = first_name
-                    elif last_name:
-                        name = last_name
-                
-                # Backward compatibility: if old parameters provided, use them
-                if not first_name and name:
-                    # Split name into first and last
-                    name_parts = name.split(' ', 1)
-                    first_name = name_parts[0] if name_parts else ''
-                    last_name = name_parts[1] if len(name_parts) > 1 else ''
-                
-                # Ensure required fields have defaults
-                if not first_name:
-                    first_name = ''
-                if not last_name:
-                    last_name = ''
-                if not name:
-                    name = f"{first_name} {last_name}".strip() or 'Unknown'
-                if not category:
-                    category = 'Visitor'
-                if not purpose:
-                    purpose = ''
-                if not destination:
-                    destination = ''
-                if not person_visited:
-                    person_visited = ''
-                
                 cursor.execute('''
-                    INSERT INTO visitors (nric, hp_no, first_name, last_name, name, category,
-                                        purpose, destination, company, vehicle_number,
-                                        pass_number, remarks, person_visited, organization,
-                                        check_in_time)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (nric, hp_no, first_name, last_name, name, category, purpose,
-                      destination, company, vehicle_number, pass_number, remarks,
-                      person_visited, organization, check_in_time_str))
+                    INSERT INTO visitors (
+                        nric, hp_no, first_name, last_name, name, category,
+                        purpose, destination, company, vehicle_number,
+                        pass_number, remarks, person_visited, organization, check_in_time
+                    ) VALUES (
+                        :nric, :hp_no, :first_name, :last_name, :name, :category,
+                        :purpose, :destination, :company, :vehicle_number,
+                        :pass_number, :remarks, :person_visited, :organization, :check_in_time
+                    )
+                ''', kwargs)
                 conn.commit()
                 return True
-        except sqlite3.Error as e:
+
+        except Exception as e:
             logging.error(f"Error adding visitor: {e}")
             return False
-    
-    def find_existing_visitor(self, nric: str = None, hp_no: str = None) -> Optional[Dict]:
-        """Find an existing visitor by NRIC or HP number"""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                if nric:
-                    cursor.execute('''
-                        SELECT nric, hp_no, first_name, last_name, name, category,
-                               purpose, destination, company, vehicle_number, remarks
-                        FROM visitors
-                        WHERE nric = ?
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    ''', (nric,))
-                elif hp_no:
-                    cursor.execute('''
-                        SELECT nric, hp_no, first_name, last_name, name, category,
-                               purpose, destination, company, vehicle_number, remarks
-                        FROM visitors
-                        WHERE hp_no = ?
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    ''', (hp_no,))
-                else:
-                    return None
-                
-                result = cursor.fetchone()
-                if result:
-                    columns = ['nric', 'hp_no', 'first_name', 'last_name', 'name', 'category',
-                              'purpose', 'destination', 'company', 'vehicle_number', 'remarks']
-                    return dict(zip(columns, result))
-                return None
-        except sqlite3.Error as e:
-            logging.error(f"Error finding existing visitor: {e}")
-            return None
-    
-    def find_existing_visitor_by_name(self, first_name: str, last_name: str) -> Optional[Dict]:
-        """Find an existing visitor by First Name and Last Name"""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute('''
-                    SELECT nric, hp_no, first_name, last_name, name, category,
-                           purpose, destination, company, vehicle_number, remarks
-                    FROM visitors
-                    WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?)
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                ''', (first_name, last_name))
-                
-                result = cursor.fetchone()
-                if result:
-                    columns = ['nric', 'hp_no', 'first_name', 'last_name', 'name', 'category',
-                              'purpose', 'destination', 'company', 'vehicle_number', 'remarks']
-                    return dict(zip(columns, result))
-                return None
-        except sqlite3.Error as e:
-            logging.error(f"Error finding existing visitor by name: {e}")
-            return None
-    
+
+    # -------------------------------------------------------
+    # PASS NUMBER GENERATION
+    # -------------------------------------------------------
     def generate_pass_number(self) -> str:
-        """Generate a unique pass number in format VMS-YYYYMMDD-XXXX"""
         try:
             today = datetime.now().strftime('%Y%m%d')
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT COUNT(*) FROM visitors
-                    WHERE DATE(check_in_time) = DATE('now')
-                ''')
+                cursor.execute("SELECT COUNT(*) FROM visitors WHERE DATE(check_in_time)=DATE('now')")
                 count = cursor.fetchone()[0]
-                pass_num = f"VMS-{today}-{count + 1:04d}"
-                return pass_num
-        except sqlite3.Error as e:
-            logging.error(f"Error generating pass number: {e}")
-            # Fallback to timestamp-based pass
+                return f"VMS-{today}-{count + 1:04d}"
+        except:
             return f"VMS-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    
+
+    # -------------------------------------------------------
+    # EXISTING VISITOR LOOKUP
+    # -------------------------------------------------------
+    def find_visitors_by_nric(self, nric: str = "", hp_no: str = "") -> list:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+
+                if nric and hp_no:
+                    query = """
+                        SELECT nric, first_name, last_name, company, vehicle_number,
+                               hp_no, category, check_in_time as last_visit
+                        FROM visitors
+                        WHERE nric LIKE ? OR hp_no LIKE ?
+                        ORDER BY check_in_time DESC
+                    """
+                    params = (f"%{nric}%", f"%{hp_no}%")
+                elif nric:
+                    query = """
+                        SELECT nric, first_name, last_name, company, vehicle_number,
+                               hp_no, category, check_in_time as last_visit
+                        FROM visitors
+                        WHERE nric LIKE ?
+                        ORDER BY check_in_time DESC
+                    """
+                    params = (f"%{nric}%",)
+                elif hp_no:
+                    query = """
+                        SELECT nric, first_name, last_name, company, vehicle_number,
+                               hp_no, category, check_in_time as last_visit
+                        FROM visitors
+                        WHERE hp_no LIKE ?
+                        ORDER BY check_in_time DESC
+                    """
+                    params = (f"%{hp_no}%",)
+                else:
+                    return []
+
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+
+                result = []
+                for row in rows:
+                    result.append({
+                        'nric': row[0] or '',
+                        'first_name': row[1] or '',
+                        'last_name': row[2] or '',
+                        'company': row[3] or '',
+                        'vehicle_number': row[4] or '',
+                        'hp_no': row[5] or '',
+                        'category': row[6] or '',
+                        'last_visit': row[7] if len(row) > 7 else None
+                    })
+                return result
+
+        except sqlite3.Error as e:
+            logging.error(f"Error finding visitors by NRIC/HP: {e}")
+            return []
+
+    # -------------------------------------------------------
+    # ACTIVE VISITORS
+    # -------------------------------------------------------
     def get_active_visitors(self) -> List[Dict]:
         """Get all visitors who haven't checked out"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT id, nric, hp_no, first_name, last_name, name, category,
-                           purpose, destination, company, vehicle_number, pass_number,
-                           person_visited, organization, check_in_time
-                    FROM visitors 
+                cursor.execute("""
+                    SELECT 
+                        id,
+                        nric,
+                        hp_no,
+                        first_name,
+                        last_name,
+                        category,
+                        purpose,
+                        destination,
+                        company,
+                        vehicle_number,
+                        person_visited,
+                        remarks,
+                        check_in_time
+                    FROM visitors
                     WHERE check_out_time IS NULL
                     ORDER BY check_in_time DESC
-                ''')
-                
+                """)
+
                 columns = [desc[0] for desc in cursor.description]
                 return [dict(zip(columns, row)) for row in cursor.fetchall()]
         except sqlite3.Error as e:
             logging.error(f"Error getting active visitors: {e}")
             return []
-    
+
+
+    # -------------------------------------------------------
+    # CHECKOUT
+    # -------------------------------------------------------
     def checkout_visitor(self, visitor_id: int) -> bool:
-        """Check out a visitor with explicit timestamp"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
-                # Use explicit datetime.now() for consistent timestamp
+
                 checkout_time = datetime.now()
                 checkout_time_str = checkout_time.strftime('%Y-%m-%d %H:%M:%S')
-                
-                # Get check-in time
+
                 cursor.execute('SELECT check_in_time FROM visitors WHERE id = ?', (visitor_id,))
                 result = cursor.fetchone()
                 if not result:
                     return False
-                
-                # Parse check-in time - handle both ISO format and string format
+
                 check_in_str = result[0]
-                try:
-                    if isinstance(check_in_str, str):
-                        # Try parsing ISO format first
-                        try:
-                            check_in_time = datetime.fromisoformat(check_in_str)
-                        except ValueError:
-                            # Fallback to strptime
-                            check_in_time = datetime.strptime(check_in_str, '%Y-%m-%d %H:%M:%S')
-                    else:
-                        check_in_time = datetime.fromisoformat(check_in_str)
-                except Exception as e:
-                    logging.error(f"Error parsing check-in time: {e}")
-                    return False
-                
-                duration = int((checkout_time - check_in_time).total_seconds() // 60)  # minutes
-                
+                check_in_time = datetime.fromisoformat(check_in_str)
+
+                duration = int((checkout_time - check_in_time).total_seconds() // 60)
+
                 cursor.execute('''
-                    UPDATE visitors 
+                    UPDATE visitors
                     SET check_out_time = ?, duration = ?
                     WHERE id = ?
                 ''', (checkout_time_str, duration, visitor_id))
-                
                 conn.commit()
                 return True
+
         except sqlite3.Error as e:
             logging.error(f"Error checking out visitor: {e}")
             return False
-    
+
+    # -------------------------------------------------------
+    # HISTORY + REPORTS (unchanged logic)
+    # -------------------------------------------------------
     def get_todays_history(self) -> List[Dict]:
-        """Get all visitors who checked in today"""
         try:
             today = date.today()
             with sqlite3.connect(self.db_path) as conn:
@@ -322,95 +331,77 @@ class DatabaseManager:
                     SELECT name, first_name, last_name, nric, hp_no, category,
                            vehicle_number, company, organization, purpose, destination, pass_number,
                            check_in_time, check_out_time, duration
-                    FROM visitors 
+                    FROM visitors
                     WHERE DATE(check_in_time) = ?
                     ORDER BY check_in_time DESC
                 ''', (today,))
-                
                 columns = [desc[0] for desc in cursor.description]
                 return [dict(zip(columns, row)) for row in cursor.fetchall()]
         except sqlite3.Error as e:
             logging.error(f"Error getting today's history: {e}")
             return []
-    
-    def get_all_records(self, start_date: Optional[date] = None, 
-                       end_date: Optional[date] = None) -> List[Dict]:
-        """Get all visitor records with optional date filtering"""
+
+    def get_all_records(self, start_date: Optional[date] = None, end_date: Optional[date] = None) -> List[Dict]:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
+
                 if start_date and end_date:
                     cursor.execute('''
-                        SELECT * FROM visitors 
+                        SELECT * FROM visitors
                         WHERE DATE(check_in_time) BETWEEN ? AND ?
                         ORDER BY check_in_time DESC
                     ''', (start_date, end_date))
                 else:
                     cursor.execute('''
-                        SELECT * FROM visitors 
+                        SELECT * FROM visitors
                         ORDER BY check_in_time DESC
                     ''')
-                
+
                 columns = [desc[0] for desc in cursor.description]
                 return [dict(zip(columns, row)) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
-            logging.error(f"Error getting all records: {e}")
+        except sqlite3.Error:
             return []
-    
+
     def get_daily_checkins_current_month(self) -> List[Tuple[date, int]]:
-        """Get daily check-in counts for the current month"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
                     SELECT DATE(check_in_time) as date, COUNT(*) as count
-                    FROM visitors 
+                    FROM visitors
                     WHERE strftime('%Y-%m', check_in_time) = strftime('%Y-%m', 'now')
                     GROUP BY DATE(check_in_time)
                     ORDER BY date
                 ''')
-                
-                return [(datetime.strptime(row[0], '%Y-%m-%d').date(), row[1]) 
-                       for row in cursor.fetchall()]
-        except sqlite3.Error as e:
-            logging.error(f"Error getting daily check-ins: {e}")
+                return [(datetime.strptime(row[0], '%Y-%m-%d').date(), row[1]) for row in cursor.fetchall()]
+        except sqlite3.Error:
             return []
-    
+
     def get_todays_checkin_count(self) -> int:
-        """Get count of today's check-ins"""
         try:
             today = date.today()
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT COUNT(*) FROM visitors 
-                    WHERE DATE(check_in_time) = ?
-                ''', (today,))
-                
+                cursor.execute("SELECT COUNT(*) FROM visitors WHERE DATE(check_in_time) = ?", (today,))
                 return cursor.fetchone()[0]
-        except sqlite3.Error as e:
-            logging.error(f"Error getting today's check-in count: {e}")
+        except sqlite3.Error:
             return 0
-    
+
     def get_average_duration(self) -> float:
-        """Get average duration of visits in minutes"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT AVG(duration) FROM visitors 
-                    WHERE duration IS NOT NULL
-                ''')
-                
+                cursor.execute("SELECT AVG(duration) FROM visitors WHERE duration IS NOT NULL")
                 result = cursor.fetchone()[0]
                 return result if result else 0.0
-        except sqlite3.Error as e:
-            logging.error(f"Error getting average duration: {e}")
+        except sqlite3.Error:
             return 0.0
-    
+
+    # -------------------------------------------------------
+    # LICENSE MANAGEMENT (unchanged)
+    # -------------------------------------------------------
     def save_license(self, license_key: str, device_mac: str) -> bool:
-        """Save license information"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -420,22 +411,18 @@ class DatabaseManager:
                 ''', (license_key, device_mac))
                 conn.commit()
                 return True
-        except sqlite3.Error as e:
-            logging.error(f"Error saving license: {e}")
+        except sqlite3.Error:
             return False
-    
+
     def get_license_info(self) -> Optional[Dict]:
-        """Get license information"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('SELECT * FROM license WHERE id = 1')
+                cursor.execute("SELECT * FROM license WHERE id = 1")
                 result = cursor.fetchone()
-                
                 if result:
                     columns = [desc[0] for desc in cursor.description]
                     return dict(zip(columns, result))
                 return None
-        except sqlite3.Error as e:
-            logging.error(f"Error getting license info: {e}")
+        except sqlite3.Error:
             return None

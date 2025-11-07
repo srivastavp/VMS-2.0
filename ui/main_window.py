@@ -13,6 +13,8 @@ from ui.history import HistoryWidget
 from ui.all_records import AllRecordsWidget
 import sys
 import logging
+from PyQt5.QtGui import QIcon
+
 
 class LicenseDialog(QDialog):
     def __init__(self, license_manager: LicenseManager):
@@ -120,9 +122,9 @@ class MainWindow(QMainWindow):
             return False
     
     def init_ui(self):
-        self.setWindowTitle("M-Neon VMS")
+        self.setWindowTitle("M-Neo VMS")
         self.setGeometry(100, 100, 1200, 800)
-        
+        self.setWindowIcon(QIcon("assets/logo.png"))
         # Apply main style
         self.setStyleSheet(MAIN_STYLE)
         

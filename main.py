@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
 Visitor Management System
-A modern desktop application for managing visitor records
 """
 
 import sys
 import logging
-from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QIcon
 from ui.main_window import MainWindow
+from ui.splashscreen import SplashScreen
+
 
 def setup_logging():
-    """Setup application logging"""
+    """Setup application logging output."""
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -22,35 +24,48 @@ def setup_logging():
         ]
     )
 
+
 def main():
-    """Main application entry point"""
+    """Main application entry point."""
     setup_logging()
-    
-    # Create application
+
+    # ✅ Must be set BEFORE QApplication
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
     app = QApplication(sys.argv)
-    app.setApplicationName("M-Neon VMS")
+    app.setWindowIcon(QIcon("assets/logo.png"))
+    app.setApplicationName("M-Neo VMS")
     app.setApplicationVersion("1.0")
-    app.setOrganizationName("M-Neon Solutions")
-    
-    # Set application font
-    font = QFont("Segoe UI", 9)
-    app.setFont(font)
-    
-    # Enable high DPI support
-    app.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-    
-    try:
-        # Create and show main window
-        window = MainWindow()
-        window.show()
-        
-        # Run application
-        sys.exit(app.exec_())
-        
-    except Exception as e:
-        logging.error(f"Application error: {e}")
-        sys.exit(1)
+    app.setOrganizationName("M-Neo Solutions")
+    app.setFont(QFont("Segoe UI", 9))
+
+    # Show splash screen
+    splash = SplashScreen()
+    splash.show()
+
+    def start_app():
+        try:
+            window = MainWindow()
+            window.show()
+            splash.close()
+
+            # ✅ Prevent garbage collection closing window
+            app.main_window = window
+
+        except Exception as e:
+            splash.close()
+            import traceback
+            print("\n\n🔥 ERROR WHILE STARTING MAIN WINDOW 🔥\n")
+            traceback.print_exc()
+            QMessageBox.critical(None, "Startup Error", str(e))
+            sys.exit(1)
+
+    # Startup delay (2 sec)
+    QTimer.singleShot(2000, start_app)
+
+    sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()
