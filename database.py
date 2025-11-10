@@ -45,6 +45,7 @@ class DatabaseManager:
 
         self.init_database()
         self._verify_device_identity()
+        print("Active database path:", self.db_path)
 
     # -------------------------------------------------------
     def get_connection(self):
@@ -271,6 +272,7 @@ class DatabaseManager:
                         destination,
                         company,
                         vehicle_number,
+                        pass_number,
                         person_visited,
                         remarks,
                         check_in_time

@@ -34,7 +34,7 @@ def main():
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon("assets/logo.png"))
+    app.setWindowIcon(QIcon("assets/logo.ico"))
     app.setApplicationName("M-Neo VMS")
     app.setApplicationVersion("1.0")
     app.setOrganizationName("M-Neo Solutions")

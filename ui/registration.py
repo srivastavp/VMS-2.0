@@ -2,12 +2,11 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QTextEdit, QPushButton, QLabel, QMessageBox,
-    QFrame, QComboBox, QStackedWidget, QDialog, QListWidget, QListWidgetItem
+    QFrame, QComboBox, QStackedWidget, QDialog, QListWidget, QListWidgetItem, QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 from datetime import datetime
-from PyQt5.QtWidgets import QSizePolicy
 import logging, re, traceback
 
 from database import DatabaseManager
@@ -64,8 +63,7 @@ QPushButton:hover {{
 }}
 """
 
-
-# ---------- Selection Dialog ----------
+# Visitor Selection Popup
 class VisitorSelectionDialog(QDialog):
     def __init__(self, visitors, parent=None):
         super().__init__(parent)
@@ -75,31 +73,31 @@ class VisitorSelectionDialog(QDialog):
         self.setMinimumSize(600, 350)
 
         layout = QVBoxLayout(self)
-        title = QLabel("Select Existing Visitor")
+
+        title = QLabel("Select Previously Registered Visitor")
         title.setFont(QFont("Segoe UI", 14, QFont.Bold))
         title.setStyleSheet(f"color:{PRIMARY_COLOR}; margin-bottom:6px;")
         layout.addWidget(title)
 
         list_area = QListWidget()
         for v in visitors:
-            name = f"{v.get('first_name','')} {v.get('last_name','')}".strip()
-            item = QListWidgetItem(f"{name}  |  {v.get('nric','')}  |  {v.get('hp_no','')}")
+            item = QListWidgetItem(f"{v.get('first_name','')} {v.get('last_name','')}  |  {v.get('nric')}  |  {v.get('hp_no')}")
             item.setData(Qt.UserRole, v)
             list_area.addItem(item)
         layout.addWidget(list_area)
 
-        buttons = QHBoxLayout()
-        confirm = QPushButton("Select")
-        confirm.setStyleSheet(BUTTON_PRIMARY)
-        cancel = QPushButton("Cancel")
-        cancel.setStyleSheet(BUTTON_SECONDARY)
-        buttons.addStretch()
-        buttons.addWidget(confirm)
-        buttons.addWidget(cancel)
-        layout.addLayout(buttons)
+        btn_layout = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.setStyleSheet(BUTTON_PRIMARY)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet(BUTTON_SECONDARY)
+        btn_layout.addStretch()
+        btn_layout.addWidget(select_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
 
-        confirm.clicked.connect(lambda: self._select(list_area))
-        cancel.clicked.connect(self.reject)
+        select_btn.clicked.connect(lambda: self._select(list_area))
+        cancel_btn.clicked.connect(self.reject)
 
     def _select(self, list_area):
         item = list_area.currentItem()
@@ -108,7 +106,6 @@ class VisitorSelectionDialog(QDialog):
             self.accept()
 
 
-# ---------- Main Registration Widget ----------
 class RegistrationWidget(QWidget):
     visitor_registered = pyqtSignal()
 
@@ -116,12 +113,10 @@ class RegistrationWidget(QWidget):
         super().__init__()
         self.db_manager = db_manager
         self.is_existing_visitor = False
-
         self.setStyleSheet(f"background: {BG_COLOR};")
         self._build_ui()
 
     def _make_label(self, text):
-        """Add red * to required fields"""
         label = QLabel(f"{text} <span style='color:red'>*</span>")
         label.setStyleSheet("font-weight: 500;")
         return label
@@ -165,7 +160,7 @@ class RegistrationWidget(QWidget):
         card.setMinimumHeight(260)
 
         cl = QVBoxLayout(card)
-        cl.setContentsMargins(60, 50, 60, 50)  # restore spacing
+        cl.setContentsMargins(60, 50, 60, 50)
 
         title = QLabel("Select Visitor Type")
         title.setFont(QFont("Segoe UI", 20, QFont.Bold))
@@ -176,13 +171,11 @@ class RegistrationWidget(QWidget):
         new_btn = QPushButton("New Visitor")
         new_btn.setStyleSheet(BUTTON_PRIMARY)
         new_btn.setFixedHeight(60)
-        new_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         new_btn.clicked.connect(lambda: self.show_form(False))
 
         existing_btn = QPushButton("Existing Visitor")
         existing_btn.setStyleSheet(BUTTON_SECONDARY)
         existing_btn.setFixedHeight(60)
-        existing_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         existing_btn.clicked.connect(lambda: self.show_form(True))
 
         cl.addWidget(new_btn)
@@ -209,14 +202,23 @@ class RegistrationWidget(QWidget):
         left = QFormLayout()
         right = QFormLayout()
 
-        # Inputs + Error labels
+        # Inputs
         self.nric = self._make_input("NRIC")
+        self.search_btn = QPushButton("Search")
+        self.search_btn.setStyleSheet(BUTTON_PRIMARY)
+        self.search_btn.setMinimumHeight(40)
+        self.search_btn.clicked.connect(self.search_existing)
+        self.search_btn.hide()   # hidden until "Existing visitor" mode
+
+        nric_row = QHBoxLayout()
+        nric_row.addWidget(self.nric)
+        nric_row.addWidget(self.search_btn)
+
         self.hp = self._make_input("HP No.")
         self.fn = self._make_input("First Name")
         self.ln = self._make_input("Last Name")
         self.purpose = self._make_input("Purpose")
         self.dest = self._make_input("Destination")
-
         self.category = self._make_input(combo=True, items=["Visitor", "Vendor", "Drop-off"])
         self.company = self._make_input("Company")
         self.vehicle = self._make_input("Vehicle No.")
@@ -232,8 +234,7 @@ class RegistrationWidget(QWidget):
         self.hp_error.setStyleSheet("color: red; font-size: 9pt;")
         self.hp_error.hide()
 
-        # Left (Required Fields)
-        left.addRow(self._make_label("NRIC"), self.nric)
+        left.addRow(self._make_label("NRIC"), nric_row)
         left.addRow("", self.nric_error)
         left.addRow(self._make_label("HP No"), self.hp)
         left.addRow("", self.hp_error)
@@ -242,7 +243,6 @@ class RegistrationWidget(QWidget):
         left.addRow("Category:", self.category)
         left.addRow(self._make_label("Purpose"), self.purpose)
 
-        # Right
         right.addRow(self._make_label("Destination"), self.dest)
         right.addRow("Company:", self.company)
         right.addRow("Vehicle:", self.vehicle)
@@ -253,7 +253,7 @@ class RegistrationWidget(QWidget):
         form.addLayout(right, 2)
         card_layout.addLayout(form)
 
-        # Live validation
+        # Validation signals
         self.nric.textChanged.connect(self.validate_nric)
         self.hp.textChanged.connect(self.validate_hp)
 
@@ -270,25 +270,10 @@ class RegistrationWidget(QWidget):
         actions.addStretch()
         actions.addWidget(clear)
         actions.addWidget(register)
-        card_layout.addLayout(actions)
 
+        card_layout.addLayout(actions)
         layout.addWidget(card)
         return page
-
-    # Validation
-    def validate_nric(self):
-        text = self.nric.text().strip().upper()
-        valid = bool(re.match(r"^[STFG][0-9]{7}[A-Z]$", text))
-        self.nric_error.setVisible(not valid)
-        self.nric_error.setText("Invalid NRIC format (Example: S1234567D)")
-        return valid
-
-    def validate_hp(self):
-        text = self.hp.text().strip()
-        valid = text.isdigit() and len(text) == 8
-        self.hp_error.setVisible(not valid)
-        self.hp_error.setText("HP No. must be 8 digits")
-        return valid
 
     def show_selection(self):
         self.stacked.setCurrentIndex(0)
@@ -296,7 +281,40 @@ class RegistrationWidget(QWidget):
 
     def show_form(self, existing):
         self.is_existing_visitor = existing
+        self.search_btn.setVisible(existing)
         self.stacked.setCurrentIndex(1)
+
+    # Search existing visitor
+    def search_existing(self):
+        matches = self.db_manager.find_visitors_by_nric(
+            nric=self.nric.text().strip(), hp_no=self.hp.text().strip()
+        )
+
+        if not matches:
+            QMessageBox.information(self, "Not Found", "No matching visitor found.")
+            return
+
+        dialog = VisitorSelectionDialog(matches, self)
+        if dialog.exec_():
+            v = dialog.selected_visitor
+            self.nric.setText(v.get("nric", ""))
+            self.hp.setText(v.get("hp_no", ""))
+            self.fn.setText(v.get("first_name", ""))
+            self.ln.setText(v.get("last_name", ""))
+            self.company.setText(v.get("company", ""))
+            self.vehicle.setText(v.get("vehicle_number", ""))
+
+    def validate_nric(self):
+        text = self.nric.text().strip().upper()
+        valid = bool(re.match(r"^[STFG][0-9]{7}[A-Z]$", text))
+        self.nric_error.setVisible(not valid)
+        return valid
+
+    def validate_hp(self):
+        text = self.hp.text().strip()
+        valid = text.isdigit() and len(text) == 8
+        self.hp_error.setVisible(not valid)
+        return valid
 
     def clear_form(self):
         for f in [self.nric, self.hp, self.fn, self.ln, self.purpose,
@@ -307,13 +325,10 @@ class RegistrationWidget(QWidget):
         self.nric_error.hide()
         self.hp_error.hide()
 
-    # ✅ Required field + format validation
     def register_visitor(self):
-        # Format checks
         if not self.validate_nric() or not self.validate_hp():
             return
 
-        # Required fields list
         required_fields = [
             (self.nric, "NRIC"),
             (self.hp, "HP No"),

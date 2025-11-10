@@ -58,11 +58,11 @@ class ActiveVisitorsWidget(QWidget):
         
         # Table with all columns
         self.table = QTableWidget()
-        self.table.setColumnCount(14)
+        self.table.setColumnCount(15)
         self.table.setHorizontalHeaderLabels([
             "ID", "NRIC", "HP No.", "First Name", "Last Name", "Category",
             "Purpose", "Destination", "Company", "Vehicle No.", "Person Visited",
-            "Remarks", "Check-in Time", "Action"
+            "Remarks", "Check-in Time", "Pass No.", "Action"
         ])
         
         # Hide ID column
@@ -117,7 +117,8 @@ class ActiveVisitorsWidget(QWidget):
                 self.table.setItem(row, 9, QTableWidgetItem(visitor.get('vehicle_number', '') or ''))
                 self.table.setItem(row, 10, QTableWidgetItem(visitor.get('person_visited', '') or ''))
                 self.table.setItem(row, 11, QTableWidgetItem(visitor.get('remarks', '') or ''))
-                self.table.setItem(row, 12, QTableWidgetItem(visitor.get('check_in_time', '')))
+                self.table.setItem(row, 12, QTableWidgetItem(visitor.get('pass_number', '') or ''))
+                self.table.setItem(row, 13, QTableWidgetItem(visitor.get('check_in_time', '')))
 
                 # ✅ New modern Check Out button (auto-resize + icon)
                 checkout_btn = QPushButton("   Check Out")
