@@ -45,7 +45,8 @@ class HistoryWidget(QWidget):
             "Destination", "Company", "Vehicle No.", "Person Visited", "Remarks",
             "Check-in Time", "Check-out Time", "Duration"
         ])
-        
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
         # Set table properties
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)

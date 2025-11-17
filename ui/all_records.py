@@ -95,7 +95,8 @@ class AllRecordsWidget(QWidget):
             "Destination", "Company", "Vehicle No.", "Person Visited", "Remarks",
             "Check-in Time", "Check-out Time", "Duration"
         ])
-        
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
         # Hide ID column
         self.table.setColumnHidden(0, True)
         

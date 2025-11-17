@@ -6,13 +6,14 @@ from typing import List, Dict, Optional, Tuple
 import logging
 import uuid
 import re
-
+import traceback
 
 # -------------------------
 # DEVICE IDENTIFIER
 # -------------------------
 def get_device_mac() -> str:
     """Return unique machine identifier (MAC-based)."""
+    # hex(uuid.getnode()) returns '0x....' — keep uppercase for consistency
     return hex(uuid.getnode()).upper()
 
 
@@ -27,28 +28,35 @@ def regexp(pattern, value):
 
 class DatabaseManager:
     def __init__(self, db_path: str = None):
+        # -------------------------
+        # Store DB locally in project directory (portable)
+        # -------------------------
+        base_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent
+        data_dir = base_dir / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
 
-        # -------------------------
-        # Store DB per machine
-        # -------------------------
         if db_path is None:
-            appdata = Path(os.getenv("APPDATA")) / "M-Neo-VMS"
-            appdata.mkdir(parents=True, exist_ok=True)
-            db_path = appdata / "visitor_management.db"
+            db_path = data_dir / "visitor_management.db"
 
         self.db_path = str(db_path)
 
-        # Enable SQLite REGEXP
+        # Ensure sqlite REGEXP function available
         conn = sqlite3.connect(self.db_path)
         conn.create_function("REGEXP", 2, regexp)
         conn.close()
 
+        # Initialize DB and perform device binding verification
         self.init_database()
-        self._verify_device_identity()
-        print("Active database path:", self.db_path)
+        try:
+            self._verify_device_identity()
+        except Exception:
+            logging.error("Error verifying device identity:\n" + traceback.format_exc())
+
+        logging.info(f"Active database path: {self.db_path}")
 
     # -------------------------------------------------------
     def get_connection(self):
+        """Return a fresh sqlite3 connection (caller should close)."""
         return sqlite3.connect(self.db_path)
 
     # -------------------------------------------------------
@@ -100,10 +108,14 @@ class DatabaseManager:
             logging.error(f"Database initialization error: {e}")
 
     # -------------------------------------------------------
-    # DEVICE BINDING LOGIC
+    # DEVICE PROTECTION / BINDING (safe backup on mismatch)
     # -------------------------------------------------------
     def _verify_device_identity(self):
-        """If DB was copied to another machine → reset visitor data."""
+        """
+        If DB appears to have been copied between machines (device_mac mismatch),
+        create a backup of visitors table (visitors_backup_YYYYMMDD_HHMMSS) and
+        then clear visitors table. This preserves prior data instead of deleting it.
+        """
         current_mac = get_device_mac()
 
         with sqlite3.connect(self.db_path) as conn:
@@ -111,22 +123,42 @@ class DatabaseManager:
             cursor.execute("SELECT device_mac FROM license WHERE id = 1")
             row = cursor.fetchone()
 
+            # First-time run on this DB — insert a license row with empty key
             if not row:
-                cursor.execute("INSERT INTO license (id, license_key, device_mac) VALUES (1, '', ?)", (current_mac,))
+                cursor.execute(
+                    "INSERT INTO license (id, license_key, device_mac) VALUES (1, '', ?)",
+                    (current_mac,)
+                )
                 conn.commit()
+                logging.info("License row created and device_mac recorded.")
                 return
 
             stored_mac = row[0]
 
+            # If the stored mac differs from current, treat as DB copied.
             if stored_mac != current_mac:
-                logging.warning("⚠ Database copied from a different machine — Resetting visitor records.")
-                cursor.execute("DELETE FROM visitors")
-                cursor.execute("UPDATE license SET device_mac=? WHERE id=1", (current_mac,))
-                conn.commit()
-                logging.info("✅ Reset complete — Database now bound to this device.")
+                logging.warning("Database appears to be from a different machine (device_mac mismatch).")
+                try:
+                    # create backup table name
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_table = f"visitors_backup_{ts}"
+
+                    # create backup table using schema copy
+                    cursor.execute(f"CREATE TABLE IF NOT EXISTS {backup_table} AS SELECT * FROM visitors")
+                    logging.info(f"Backup table created: {backup_table}")
+
+                    # Now clear visitors table (but backing-up preserved data)
+                    cursor.execute("DELETE FROM visitors")
+                    cursor.execute("UPDATE license SET device_mac=? WHERE id=1", (current_mac,))
+                    conn.commit()
+
+                    logging.info("Visitor records cleared and license.device_mac updated for this machine.")
+                    logging.info(f"Previous visitors copied to backup table '{backup_table}' in DB.")
+                except Exception:
+                    logging.error("Error while backing up and clearing visitors:\n" + traceback.format_exc())
 
     # -------------------------------------------------------
-    # VALIDATION
+    # VALIDATION (NRIC / HP)
     # -------------------------------------------------------
     @staticmethod
     def validate_nric(nric: str) -> bool:
@@ -141,23 +173,31 @@ class DatabaseManager:
     # -------------------------------------------------------
     def add_visitor(self, **kwargs) -> bool:
         try:
+            # Normalize & validate NRIC
             if kwargs.get("nric"):
                 kwargs["nric"] = kwargs["nric"].upper()
                 if not self.validate_nric(kwargs["nric"]):
                     logging.warning("Rejected invalid NRIC format.")
                     return False
 
+            # Validate HP
             if kwargs.get("hp_no") and not self.validate_hp(kwargs["hp_no"]):
                 logging.warning("Rejected invalid HP number format.")
                 return False
 
-            check_in_time = kwargs.get("check_in_time", datetime.now())
-            kwargs["check_in_time"] = check_in_time.strftime('%Y-%m-%d %H:%M:%S')
-
+            # Fill name if missing
             if not kwargs.get("name"):
                 fn = kwargs.get("first_name", "")
                 ln = kwargs.get("last_name", "")
                 kwargs["name"] = f"{fn} {ln}".strip()
+
+            # Ensure check_in_time is formatted string
+            check_in_time = kwargs.get("check_in_time", datetime.now())
+            if isinstance(check_in_time, datetime):
+                kwargs["check_in_time"] = check_in_time.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                # assume already formatted
+                kwargs["check_in_time"] = check_in_time
 
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -177,6 +217,7 @@ class DatabaseManager:
 
         except Exception as e:
             logging.error(f"Error adding visitor: {e}")
+            logging.debug(traceback.format_exc())
             return False
 
     # -------------------------------------------------------
@@ -187,10 +228,12 @@ class DatabaseManager:
             today = datetime.now().strftime('%Y%m%d')
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                # count today's check-ins
                 cursor.execute("SELECT COUNT(*) FROM visitors WHERE DATE(check_in_time)=DATE('now')")
-                count = cursor.fetchone()[0]
+                count = cursor.fetchone()[0] or 0
                 return f"VMS-{today}-{count + 1:04d}"
-        except:
+        except Exception:
+            logging.debug(traceback.format_exc())
             return f"VMS-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
     # -------------------------------------------------------
@@ -250,6 +293,7 @@ class DatabaseManager:
 
         except sqlite3.Error as e:
             logging.error(f"Error finding visitors by NRIC/HP: {e}")
+            logging.debug(traceback.format_exc())
             return []
 
     # -------------------------------------------------------
@@ -285,8 +329,8 @@ class DatabaseManager:
                 return [dict(zip(columns, row)) for row in cursor.fetchall()]
         except sqlite3.Error as e:
             logging.error(f"Error getting active visitors: {e}")
+            logging.debug(traceback.format_exc())
             return []
-
 
     # -------------------------------------------------------
     # CHECKOUT
@@ -305,7 +349,11 @@ class DatabaseManager:
                     return False
 
                 check_in_str = result[0]
-                check_in_time = datetime.fromisoformat(check_in_str)
+                # some older rows might be stored in different formats; try safe parsing
+                try:
+                    check_in_time = datetime.fromisoformat(check_in_str)
+                except Exception:
+                    check_in_time = datetime.strptime(check_in_str, '%Y-%m-%d %H:%M:%S')
 
                 duration = int((checkout_time - check_in_time).total_seconds() // 60)
 
@@ -319,10 +367,11 @@ class DatabaseManager:
 
         except sqlite3.Error as e:
             logging.error(f"Error checking out visitor: {e}")
+            logging.debug(traceback.format_exc())
             return False
 
     # -------------------------------------------------------
-    # HISTORY + REPORTS (unchanged logic)
+    # HISTORY + REPORTS
     # -------------------------------------------------------
     def get_todays_history(self) -> List[Dict]:
         try:
@@ -341,6 +390,7 @@ class DatabaseManager:
                 return [dict(zip(columns, row)) for row in cursor.fetchall()]
         except sqlite3.Error as e:
             logging.error(f"Error getting today's history: {e}")
+            logging.debug(traceback.format_exc())
             return []
 
     def get_all_records(self, start_date: Optional[date] = None, end_date: Optional[date] = None) -> List[Dict]:
@@ -363,6 +413,7 @@ class DatabaseManager:
                 columns = [desc[0] for desc in cursor.description]
                 return [dict(zip(columns, row)) for row in cursor.fetchall()]
         except sqlite3.Error:
+            logging.debug(traceback.format_exc())
             return []
 
     def get_daily_checkins_current_month(self) -> List[Tuple[date, int]]:
@@ -378,6 +429,7 @@ class DatabaseManager:
                 ''')
                 return [(datetime.strptime(row[0], '%Y-%m-%d').date(), row[1]) for row in cursor.fetchall()]
         except sqlite3.Error:
+            logging.debug(traceback.format_exc())
             return []
 
     def get_todays_checkin_count(self) -> int:
@@ -388,6 +440,7 @@ class DatabaseManager:
                 cursor.execute("SELECT COUNT(*) FROM visitors WHERE DATE(check_in_time) = ?", (today,))
                 return cursor.fetchone()[0]
         except sqlite3.Error:
+            logging.debug(traceback.format_exc())
             return 0
 
     def get_average_duration(self) -> float:
@@ -398,12 +451,14 @@ class DatabaseManager:
                 result = cursor.fetchone()[0]
                 return result if result else 0.0
         except sqlite3.Error:
+            logging.debug(traceback.format_exc())
             return 0.0
 
     # -------------------------------------------------------
-    # LICENSE MANAGEMENT (unchanged)
+    # LICENSE MANAGEMENT STORAGE
     # -------------------------------------------------------
     def save_license(self, license_key: str, device_mac: str) -> bool:
+        """Stores encrypted license key against device. Overwrites id=1."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -413,18 +468,39 @@ class DatabaseManager:
                 ''', (license_key, device_mac))
                 conn.commit()
                 return True
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            logging.error(f"Error saving license: {e}")
+            logging.debug(traceback.format_exc())
             return False
 
     def get_license_info(self) -> Optional[Dict]:
+        """Retrieve stored encrypted license key + MAC."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM license WHERE id = 1")
-                result = cursor.fetchone()
-                if result:
-                    columns = [desc[0] for desc in cursor.description]
-                    return dict(zip(columns, result))
-                return None
+                cursor.execute("SELECT id, license_key, device_mac, activation_date, is_active FROM license WHERE id=1")
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                return {
+                    "id": row[0],
+                    "license_key": row[1],
+                    "device_mac": row[2],
+                    "activation_date": row[3],
+                    "is_active": row[4]
+                }
         except sqlite3.Error:
+            logging.debug(traceback.format_exc())
             return None
+
+    def revoke_license(self) -> bool:
+        """Remove license entry (used for admin revoke)."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM license WHERE id = 1")
+                conn.commit()
+            return True
+        except sqlite3.Error:
+            logging.debug(traceback.format_exc())
+            return False

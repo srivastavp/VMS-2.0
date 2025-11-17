@@ -1,20 +1,18 @@
 import uuid
 import hashlib
-import psutil
 import base64
-
-from cryptography.fernet import Fernet
-from datetime import datetime
 import logging
+from datetime import datetime, time
+from cryptography.fernet import Fernet
 
 
 class LicenseManager:
     def __init__(self, db_manager=None):
         self.db_manager = db_manager
 
-    # --------------------
-    # DEVICE IDENTIFIER
-    # --------------------
+    # ---------------------------------------------------------
+    # DEVICE IDENTIFIER (MAC ADDRESS)
+    # ---------------------------------------------------------
     def get_device_mac(self) -> str:
         try:
             mac = ':'.join(['{:02x}'.format((uuid.getnode() >> i) & 0xff)
@@ -24,24 +22,13 @@ class LicenseManager:
             logging.error(f"Error getting MAC address: {e}")
             return "UNKNOWN"
 
-    # --------------------
-    # KEY GENERATION (unchanged)
-    # --------------------
-    def generate_license_key(self, mac_address: str) -> str:
-        try:
-            unique_string = f"{mac_address}_{datetime.now().strftime('%Y%m%d')}"
-            hash_hex = hashlib.sha256(unique_string.encode()).hexdigest()
-            return '-'.join([hash_hex[i:i+4].upper() for i in range(0, 16, 4)])
-        except:
-            return ""
-
-    # --------------------
-    # ENCRYPTION HELPERS
-    # --------------------
+    # ---------------------------------------------------------
+    # ENCRYPTION (Bound to Device MAC)
+    # ---------------------------------------------------------
     def _get_encryption_key(self):
         """
-        Generate encryption key derived from MAC so that
-        database copied to another system becomes invalid.
+        The key is derived from the MAC address.
+        Copying DB to another machine breaks decryption.
         """
         mac = self.get_device_mac()
         base = f"MNEO_VMS_SALT_{mac}"
@@ -56,18 +43,30 @@ class LicenseManager:
         cipher = self._get_encryption_key()
         return cipher.decrypt(text.encode()).decode()
 
-    # --------------------
-    # VALIDATION
-    # --------------------
-    def validate_license(self, license_key_plain: str) -> bool:
-        current_mac = self.get_device_mac()
-        expected = self.generate_license_key(current_mac)
-        return license_key_plain == expected
+    # ---------------------------------------------------------
+    # LICENSE KEY GENERATION
+    # ---------------------------------------------------------
+    def generate_license_key(self, mac: str, expiry_date: str) -> str:
+        """
+        Vendor uses this externally to generate the user’s license key.
+        """
+        base_string = f"{mac}_{expiry_date}_MNEO_VMS"
+        hash_hex = hashlib.sha256(base_string.encode()).hexdigest()
 
-    # --------------------
-    # CHECK IF LICENSE IS VALID
-    # --------------------
+        # First 16 chars → XXXX-XXXX-XXXX-XXXX
+        key = "-".join([hash_hex[i:i+4].upper() for i in range(0, 16, 4)])
+        return key
+
+    def validate_license(self, input_key: str, expiry_date: str) -> bool:
+        mac = self.get_device_mac()
+        expected = self.generate_license_key(mac, expiry_date)
+        return input_key == expected
+
+    # ---------------------------------------------------------
+    # MAIN LICENSE VALIDATION USED BY APP
+    # ---------------------------------------------------------
     def is_licensed(self) -> bool:
+
         if not self.db_manager:
             return False
 
@@ -77,34 +76,54 @@ class LicenseManager:
 
         try:
             decrypted = self.decrypt(info["license_key"])
-            return self.validate_license(decrypted)
-        except:
+
+            # Format must be: "<licensekey>|<YYYY-MM-DD>"
+            if "|" not in decrypted:
+                return False
+
+            key, expiry_str = decrypted.split("|")
+            expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+
+            # License expires at EXACTLY 10:00 AM on the expiry date
+            expiry_time = datetime.combine(expiry_date, time(10, 0))
+
+            if datetime.now() > expiry_time:
+                logging.warning(f"License expired on {expiry_time}")
+                return False
+
+            # Finally check key is correct for this machine
+            return self.validate_license(key, expiry_str)
+
+        except Exception as e:
+            logging.error(f"License validation error: {e}")
             return False
 
-    # --------------------
-    # ACTIVATE LICENSE
-    # --------------------
-    def activate_license(self, input_key: str) -> bool:
-        if not self.validate_license(input_key):
+    # ---------------------------------------------------------
+    # STORE LICENSE IN DATABASE
+    # ---------------------------------------------------------
+    def activate_license(self, input_key: str, expiry_date: str) -> bool:
+        if not self.validate_license(input_key, expiry_date):
             return False
 
-        encrypted = self.encrypt(input_key)
+        token = f"{input_key}|{expiry_date}"
+        encrypted = self.encrypt(token)
+
         return self.db_manager.save_license(encrypted, self.get_device_mac())
 
-    # --------------------
-    # DISPLAY INFO
-    # --------------------
-    def get_current_device_info(self) -> dict:
+    # ---------------------------------------------------------
+    # SHOW MAC + SAMPLE KEY ON ACTIVATION SCREEN
+    # ---------------------------------------------------------
+    def get_current_device_info(self, expiry_date: str = None) -> dict:
         mac = self.get_device_mac()
+        example = self.generate_license_key(mac, expiry_date or "2026-01-01")
         return {
-            'mac_address': mac,
-            'license_key': self.generate_license_key(mac),
-            'timestamp': datetime.now().isoformat()
+            "mac_address": mac,
+            "sample_license_key": example
         }
 
-    # --------------------
-    # REVOKE LICENSE
-    # --------------------
+    # ---------------------------------------------------------
+    # REMOVE LICENSE (Admin use)
+    # ---------------------------------------------------------
     def revoke_license(self) -> bool:
         try:
             with self.db_manager.get_connection() as conn:
@@ -112,5 +131,5 @@ class LicenseManager:
                 cursor.execute("DELETE FROM license WHERE id = 1")
                 conn.commit()
             return True
-        except:
+        except Exception:
             return False

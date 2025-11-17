@@ -1,10 +1,10 @@
-# ui/splashscreen.py
-
 from PyQt5.QtWidgets import QSplashScreen, QLabel, QVBoxLayout, QWidget
 from PyQt5.QtGui import QPixmap, QFont, QPainter
-from PyQt5.QtCore import Qt, QPropertyAnimation, QByteArray, pyqtProperty
+from PyQt5.QtCore import Qt, QPropertyAnimation, pyqtProperty
 
+from utils.path_helper import resource_path
 from utils.styles import PRIMARY_COLOR
+
 
 class FadeLabel(QLabel):
     def __init__(self, *args, **kwargs):
@@ -36,14 +36,13 @@ class SplashScreen(QWidget):
         layout.setSpacing(10)
         layout.setContentsMargins(40, 40, 40, 40)
 
-        # Logo image
+        # Load logo correctly from EXE
         logo = QLabel()
-        pixmap = QPixmap("assets/logo.png")
+        pixmap = QPixmap(resource_path("assets/logo.png"))
         pixmap = pixmap.scaled(160, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         logo.setPixmap(pixmap)
         logo.setAlignment(Qt.AlignCenter)
 
-        # App title text
         self.title_label = FadeLabel("M-Neo Visitor Management System")
         self.title_label.setAlignment(Qt.AlignCenter)
         self.title_label.setFont(QFont("Segoe UI", 16, QFont.Bold))
@@ -54,7 +53,6 @@ class SplashScreen(QWidget):
 
         self.setFixedSize(430, 350)
 
-        # Fade-in animation
         self.animation = QPropertyAnimation(self.title_label, b"opacity")
         self.animation.setDuration(1200)
         self.animation.setStartValue(0.0)

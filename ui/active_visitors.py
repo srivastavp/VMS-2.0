@@ -64,7 +64,8 @@ class ActiveVisitorsWidget(QWidget):
             "Purpose", "Destination", "Company", "Vehicle No.", "Person Visited",
             "Remarks", "Check-in Time", "Pass No.", "Action"
         ])
-        
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
         # Hide ID column
         self.table.setColumnHidden(0, True)
         

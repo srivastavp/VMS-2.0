@@ -1,8 +1,8 @@
-# registration.py
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QTextEdit, QPushButton, QLabel, QMessageBox,
-    QFrame, QComboBox, QStackedWidget, QDialog, QListWidget, QListWidgetItem, QSizePolicy
+    QFrame, QComboBox, QStackedWidget, QDialog, QListWidget, QListWidgetItem,
+    QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -63,7 +63,8 @@ QPushButton:hover {{
 }}
 """
 
-# Visitor Selection Popup
+
+# Visitor selection dialog
 class VisitorSelectionDialog(QDialog):
     def __init__(self, visitors, parent=None):
         super().__init__(parent)
@@ -86,15 +87,16 @@ class VisitorSelectionDialog(QDialog):
             list_area.addItem(item)
         layout.addWidget(list_area)
 
-        btn_layout = QHBoxLayout()
+        btn_row = QHBoxLayout()
         select_btn = QPushButton("Select")
         select_btn.setStyleSheet(BUTTON_PRIMARY)
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setStyleSheet(BUTTON_SECONDARY)
-        btn_layout.addStretch()
-        btn_layout.addWidget(select_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
+
+        btn_row.addStretch()
+        btn_row.addWidget(select_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
 
         select_btn.clicked.connect(lambda: self._select(list_area))
         cancel_btn.clicked.connect(self.reject)
@@ -128,7 +130,9 @@ class RegistrationWidget(QWidget):
         else:
             w = QLineEdit()
             w.setPlaceholderText(placeholder)
+
         w.setMinimumHeight(40)
+        w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # FIX: Prevent UI compression
         w.setStyleSheet(INPUT_STYLE)
         return w
 
@@ -136,11 +140,11 @@ class RegistrationWidget(QWidget):
         main = QVBoxLayout(self)
         main.setContentsMargins(30, 30, 30, 30)
 
-        self.header = QLabel("Visitor Registration")
-        self.header.setFont(QFont("Segoe UI", 32, QFont.Bold))
-        self.header.setAlignment(Qt.AlignCenter)
-        self.header.setStyleSheet(f"color:{PRIMARY_COLOR}; margin-bottom: 30px;")
-        main.addWidget(self.header)
+        header = QLabel("Visitor Registration")
+        header.setFont(QFont("Segoe UI", 32, QFont.Bold))
+        header.setAlignment(Qt.AlignCenter)
+        header.setStyleSheet(f"color:{PRIMARY_COLOR}; margin-bottom: 30px;")
+        main.addWidget(header)
 
         self.stacked = QStackedWidget()
         main.addWidget(self.stacked, 1)
@@ -180,8 +184,8 @@ class RegistrationWidget(QWidget):
 
         cl.addWidget(new_btn)
         cl.addWidget(existing_btn)
-
         layout.addWidget(card)
+
         return page
 
     def _form_page(self):
@@ -202,13 +206,12 @@ class RegistrationWidget(QWidget):
         left = QFormLayout()
         right = QFormLayout()
 
-        # Inputs
         self.nric = self._make_input("NRIC")
         self.search_btn = QPushButton("Search")
         self.search_btn.setStyleSheet(BUTTON_PRIMARY)
         self.search_btn.setMinimumHeight(40)
         self.search_btn.clicked.connect(self.search_existing)
-        self.search_btn.hide()   # hidden until "Existing visitor" mode
+        self.search_btn.hide()
 
         nric_row = QHBoxLayout()
         nric_row.addWidget(self.nric)
@@ -228,10 +231,12 @@ class RegistrationWidget(QWidget):
 
         self.nric_error = QLabel("")
         self.nric_error.setStyleSheet("color: red; font-size: 9pt;")
+        self.nric_error.setMinimumHeight(18)  # Prevent layout shifting
         self.nric_error.hide()
 
         self.hp_error = QLabel("")
         self.hp_error.setStyleSheet("color: red; font-size: 9pt;")
+        self.hp_error.setMinimumHeight(18)
         self.hp_error.hide()
 
         left.addRow(self._make_label("NRIC"), nric_row)
@@ -249,15 +254,13 @@ class RegistrationWidget(QWidget):
         right.addRow("Visit Person:", self.person)
         right.addRow("Remarks:", self.remarks)
 
-        form.addLayout(left, 2)
-        form.addLayout(right, 2)
+        form.addLayout(left, 1)
+        form.addLayout(right, 1)
         card_layout.addLayout(form)
 
-        # Validation signals
         self.nric.textChanged.connect(self.validate_nric)
         self.hp.textChanged.connect(self.validate_hp)
 
-        # Buttons
         actions = QHBoxLayout()
         clear = QPushButton("Clear")
         clear.setStyleSheet(BUTTON_SECONDARY)
@@ -270,8 +273,8 @@ class RegistrationWidget(QWidget):
         actions.addStretch()
         actions.addWidget(clear)
         actions.addWidget(register)
-
         card_layout.addLayout(actions)
+
         layout.addWidget(card)
         return page
 
@@ -284,7 +287,6 @@ class RegistrationWidget(QWidget):
         self.search_btn.setVisible(existing)
         self.stacked.setCurrentIndex(1)
 
-    # Search existing visitor
     def search_existing(self):
         matches = self.db_manager.find_visitors_by_nric(
             nric=self.nric.text().strip(), hp_no=self.hp.text().strip()
@@ -308,12 +310,14 @@ class RegistrationWidget(QWidget):
         text = self.nric.text().strip().upper()
         valid = bool(re.match(r"^[STFG][0-9]{7}[A-Z]$", text))
         self.nric_error.setVisible(not valid)
+        self.nric_error.setText("Invalid NRIC format (Example: S1234567D)")
         return valid
 
     def validate_hp(self):
         text = self.hp.text().strip()
         valid = text.isdigit() and len(text) == 8
         self.hp_error.setVisible(not valid)
+        self.hp_error.setText("HP No. must be 8 digits")
         return valid
 
     def clear_form(self):
@@ -340,11 +344,8 @@ class RegistrationWidget(QWidget):
 
         missing = [name for field, name in required_fields if not field.text().strip()]
         if missing:
-            QMessageBox.warning(
-                self,
-                "Missing Required Fields",
-                "Please fill the following required fields:\n\n• " + "\n• ".join(missing)
-            )
+            QMessageBox.warning(self, "Missing Required Fields",
+                                "Please fill the following required fields:\n\n• " + "\n• ".join(missing))
             return
 
         try:
