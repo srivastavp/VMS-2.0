@@ -19,6 +19,26 @@ QWidget {{
     font-size: 9pt;
 }}
 
+/* ---------------------------------
+   GLOBAL BUTTON FIX FOR MESSAGEBOX
+   --------------------------------- */
+QMessageBox QPushButton {{
+    background-color: {PRIMARY_COLOR};
+    color: white;
+    padding: 8px 18px;
+    min-width: 80px;
+    border-radius: 4px;
+    font-weight: bold;
+}}
+QMessageBox QPushButton:hover {{
+    background-color: {PRIMARY_HOVER};
+}}
+QMessageBox QPushButton:pressed {{
+    background-color: {PRIMARY_PRESSED};
+}}
+
+/* --------------------------------- */
+
 QTabWidget::pane {{
     border: 1px solid #ddd;
     background-color: white;
@@ -270,7 +290,7 @@ BUTTON_STYLES = {
             min-height: 42px;
         }
         QPushButton:hover {
-            background-color: #d32f2f;
+           	background-color: #d32f2f;
         }
         QPushButton:disabled {
             background-color: #ccc;

@@ -18,7 +18,7 @@ def build_executable():
         "--onefile",
         "--windowed",
         "--name=VisitorManagementSystem",
-        "--icon=icon.ico",  # Add icon if available
+        "--icon=logo.ico",  # Add icon if available
         "--add-data=requirements.txt;.",
         "--hidden-import=PyQt5.sip",
         "--hidden-import=pandas",

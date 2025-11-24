@@ -12,6 +12,7 @@ from PyQt5.QtGui import QFont, QIcon
 from utils.path_helper import resource_path
 from ui.main_window import MainWindow
 from ui.splashscreen import SplashScreen
+from utils.styles import MAIN_STYLE
 
 
 def setup_logging():
@@ -31,12 +32,18 @@ def main():
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
+    # APP INITIALIZED HERE
     app = QApplication(sys.argv)
+
+
     app.setWindowIcon(QIcon(resource_path("assets/logo.ico")))
     app.setApplicationName("M-Neo VMS")
     app.setApplicationVersion("1.0")
     app.setOrganizationName("M-Neo Solutions")
     app.setFont(QFont("Segoe UI", 9))
+
+    # GLOBAL STYLESHEET — must be applied AFTER app is created
+    app.setStyleSheet(MAIN_STYLE)
 
     splash = SplashScreen()
     splash.show()
