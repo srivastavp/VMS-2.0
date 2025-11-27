@@ -4,6 +4,7 @@ import os
 import logging
 import uuid
 import re
+import hashlib
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Tuple, Any, Union
@@ -195,6 +196,17 @@ class DatabaseManager:
                     )
                 ''')
 
+                cur.execute('''
+                    CREATE TABLE IF NOT EXISTS blacklist (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        hp_no TEXT NOT NULL UNIQUE,
+                        name TEXT,
+                        nric TEXT,
+                        reason TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
                 # --- Migration: ensure id_number column exists (new physical badge field) ---
                 cur.execute("PRAGMA table_info(visitors)")
                 cols = [row["name"] for row in cur.fetchall()]
@@ -212,12 +224,28 @@ class DatabaseManager:
                     )
                 ''')
 
+                cur.execute('''
+                    CREATE TABLE IF NOT EXISTS users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        organization TEXT NOT NULL,
+                        user_id TEXT NOT NULL UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        is_active INTEGER DEFAULT 1,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
                 # Indices for faster lookups
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_visitors_checkin ON visitors (DATE(check_in_time));")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_visitors_nric ON visitors (nric);")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_visitors_hp ON visitors (hp_no);")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_visitors_checkout ON visitors (check_out_time);")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_visitors_pass ON visitors (pass_number);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_user_id ON users (user_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users (role);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_blacklist_hp_no ON blacklist (hp_no);")
 
                 conn.commit()
                 logging.info("Database schema & indices ensured")
@@ -540,7 +568,7 @@ class DatabaseManager:
                 SELECT
                     name, first_name, last_name, nric, hp_no, category,
                     vehicle_number, company, organization, purpose,
-                    destination, pass_number, id_number,
+                    destination, person_visited, remarks, pass_number, id_number,
                     check_in_time, check_out_time, duration
                 FROM visitors
                 WHERE DATE(check_in_time) = ?
@@ -692,3 +720,228 @@ class DatabaseManager:
         except sqlite3.Error:
             logging.exception("get_license_info failed")
             return None
+
+    def _hash_password(self, user_id: str, password_plain: str) -> str:
+        base = f"{user_id}::{password_plain}"
+        return hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+    def create_user(self, name: str, organization: str, user_id: str, password_plain: str, role: str) -> bool:
+        try:
+            password_hash = self._hash_password(user_id, password_plain)
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    '''
+                    INSERT INTO users (name, organization, user_id, password_hash, role, is_active)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                    ''',
+                    (name, organization, user_id, password_hash, role)
+                )
+                conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            logging.exception("create_user integrity error (likely duplicate user_id)")
+            return False
+        except sqlite3.Error:
+            logging.exception("create_user failed")
+            return False
+
+    def get_user_by_credentials(self, user_id: str, password_plain: str) -> Optional[Dict]:
+        try:
+            password_hash = self._hash_password(user_id, password_plain)
+            row = self._fetchone(
+                '''
+                SELECT id, name, organization, user_id, role, is_active, created_at
+                FROM users
+                WHERE user_id = ? AND password_hash = ?
+                LIMIT 1
+                ''',
+                (user_id, password_hash)
+            )
+            if not row:
+                return None
+            return {
+                "id": row["id"],
+                "name": row["name"],
+                "organization": row["organization"],
+                "user_id": row["user_id"],
+                "role": row["role"],
+                "is_active": bool(row["is_active"]),
+                "created_at": row["created_at"],
+            }
+        except sqlite3.Error:
+            logging.exception("get_user_by_credentials failed")
+            return None
+
+    def get_user_by_user_id(self, user_id: str) -> Optional[Dict]:
+        """Fetch a single user row by user_id (no password check)."""
+        try:
+            row = self._fetchone(
+                '''
+                SELECT id, name, organization, user_id, role, is_active, created_at
+                FROM users
+                WHERE user_id = ?
+                LIMIT 1
+                ''',
+                (user_id,),
+            )
+            if not row:
+                return None
+            return {
+                "id": row["id"],
+                "name": row["name"],
+                "organization": row["organization"],
+                "user_id": row["user_id"],
+                "role": row["role"],
+                "is_active": bool(row["is_active"]),
+                "created_at": row["created_at"],
+            }
+        except sqlite3.Error:
+            logging.exception("get_user_by_user_id failed")
+            return None
+
+    def list_users(self) -> List[Dict]:
+        try:
+            rows = self._fetchall(
+                '''
+                SELECT id, name, organization, user_id, role, is_active, created_at
+                FROM users
+                ORDER BY created_at ASC
+                '''
+            )
+            return [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "organization": r["organization"],
+                    "user_id": r["user_id"],
+                    "role": r["role"],
+                    "is_active": bool(r["is_active"]),
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+        except sqlite3.Error:
+            logging.exception("list_users failed")
+            return []
+
+    def delete_user(self, user_identifier: Union[int, str]) -> bool:
+        try:
+            if isinstance(user_identifier, int):
+                params = (user_identifier,)
+                query = "DELETE FROM users WHERE id = ?"
+            else:
+                params = (user_identifier,)
+                query = "DELETE FROM users WHERE user_id = ?"
+            self._execute(query, params)
+            return True
+        except sqlite3.Error:
+            logging.exception("delete_user failed")
+            return False
+
+    def update_user_active_status(self, user_identifier: Union[int, str], is_active: bool) -> bool:
+        try:
+            if isinstance(user_identifier, int):
+                params = (1 if is_active else 0, user_identifier)
+                query = "UPDATE users SET is_active = ? WHERE id = ?"
+            else:
+                params = (1 if is_active else 0, user_identifier)
+                query = "UPDATE users SET is_active = ? WHERE user_id = ?"
+            self._execute(query, params)
+            return True
+        except sqlite3.Error:
+            logging.exception("update_user_active_status failed")
+            return False
+
+    # -------------------------
+    # BLACKLIST HELPERS (by HP No)
+    # -------------------------
+    def is_hp_blacklisted(self, hp_no: str) -> bool:
+        """Return True if the given HP number is blacklisted."""
+        try:
+            row = self._fetchone(
+                "SELECT 1 FROM blacklist WHERE hp_no = ? LIMIT 1",
+                (hp_no,),
+            )
+            return bool(row)
+        except sqlite3.Error:
+            logging.exception("is_hp_blacklisted failed")
+            return False
+
+    def add_to_blacklist_from_visit(self, hp_no: str, reason: str = "") -> bool:
+        """Add an HP No to blacklist using latest visit data (name/NRIC) if available."""
+        if not hp_no:
+            return False
+        try:
+            # Try to derive name/NRIC from most recent completed visit
+            visit = self.get_most_recent_visit_for_autofill(hp_no=hp_no)
+            name = ""
+            nric = ""
+            if visit:
+                fn = visit.get("first_name", "") or ""
+                ln = visit.get("last_name", "") or ""
+                name = f"{fn} {ln}".strip()
+                nric = visit.get("nric", "") or ""
+
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    '''
+                    INSERT OR REPLACE INTO blacklist (hp_no, name, nric, reason)
+                    VALUES (?, ?, ?, ?)
+                    ''',
+                    (hp_no, name, nric, reason),
+                )
+                conn.commit()
+            return True
+        except sqlite3.Error:
+            logging.exception("add_to_blacklist_from_visit failed")
+            return False
+
+    def get_blacklist(self) -> List[Dict]:
+        """Return all blacklisted HP numbers with basic info."""
+        try:
+            rows = self._fetchall(
+                '''
+                SELECT id, hp_no, name, nric, reason, created_at
+                FROM blacklist
+                ORDER BY created_at DESC
+                '''
+            )
+            return [
+                {
+                    "id": r["id"],
+                    "hp_no": r["hp_no"],
+                    "name": r["name"],
+                    "nric": r["nric"],
+                    "reason": r["reason"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+        except sqlite3.Error:
+            logging.exception("get_blacklist failed")
+            return []
+
+    def remove_from_blacklist(self, hp_no: str) -> bool:
+        """Whitelist an HP No by removing it from the blacklist table."""
+        try:
+            self._execute("DELETE FROM blacklist WHERE hp_no = ?", (hp_no,))
+            return True
+        except sqlite3.Error:
+            logging.exception("remove_from_blacklist failed")
+            return False
+
+    def update_user_role(self, user_identifier: Union[int, str], role: str) -> bool:
+        try:
+            if isinstance(user_identifier, int):
+                params = (role, user_identifier)
+                query = "UPDATE users SET role = ? WHERE id = ?"
+            else:
+                params = (role, user_identifier)
+                query = "UPDATE users SET role = ? WHERE user_id = ?"
+            self._execute(query, params)
+            return True
+        except sqlite3.Error:
+            logging.exception("update_user_role failed")
+            return False

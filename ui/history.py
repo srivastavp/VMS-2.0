@@ -48,7 +48,7 @@ class HistoryWidget(QWidget):
             "Purpose", "Destination", "Company", "Vehicle No.", "Person Visited",
             "Remarks",
             "Visit ID",
-            "ID Number",
+            "Pass Number",
             "Check-in Time", "Check-out Time", "Duration"
         ])
 
@@ -60,15 +60,34 @@ class HistoryWidget(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(45)
 
         header = self.table.horizontalHeader()
-        header.setStretchLastSection(True)
+        # Match All Records behavior: interactive default widths, user can drag to resize
+        for col in range(self.table.columnCount()):
+            header.setSectionResizeMode(col, QHeaderView.Interactive)
 
-        for i in range(16):
-            header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        # Set some sensible default widths (user can still resize)
+        default_widths = {
+            0: 120,  # NRIC
+            1: 100,  # HP No.
+            2: 140,  # First Name
+            3: 140,  # Last Name
+            4: 120,  # Category
+            5: 160,  # Purpose
+            6: 160,  # Destination
+            7: 150,  # Company
+            8: 130,  # Vehicle No.
+            9: 150,  # Person Visited
+            10: 220, # Remarks
+            11: 140, # Visit ID
+            12: 140, # Pass Number
+            13: 180, # Check-in Time
+            14: 180, # Check-out Time
+            15: 120, # Duration
+        }
+        for col, width in default_widths.items():
+            self.table.setColumnWidth(col, width)
 
         layout.addWidget(self.table)
         self.setLayout(layout)
-
-        self.refresh_data()
 
     def refresh_data(self):
         try:
@@ -96,13 +115,13 @@ class HistoryWidget(QWidget):
                 self.table.setItem(row, 8, QTableWidgetItem(record.get('vehicle_number', '') or ''))
                 self.table.setItem(row, 9, QTableWidgetItem(record.get('person_visited', '') or ''))
 
-                # ✅ REMARKS
+                # REMARKS
                 self.table.setItem(row, 10, QTableWidgetItem(record.get('remarks', '') or ''))
 
-                # ✅ VISIT ID (mapped from pass_number)
+                # VISIT ID (mapped from pass_number)
                 self.table.setItem(row, 11, QTableWidgetItem(record.get('pass_number', '') or ''))
 
-                # ✅ PHYSICAL ID NUMBER
+                # PASS NUMBER
                 self.table.setItem(row, 12, QTableWidgetItem(record.get('id_number', '') or ''))
 
                 self.table.setItem(row, 13, QTableWidgetItem(record.get('check_in_time', '') or ''))

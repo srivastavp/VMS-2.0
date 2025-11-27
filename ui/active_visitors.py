@@ -3,7 +3,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHBoxLayout, QLabel, QMessageBox, QHeaderView,
-    QSizePolicy, QAbstractItemView
+    QSizePolicy, QAbstractItemView, QLineEdit
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
 from PyQt5.QtGui import QFont, QIcon
@@ -35,6 +35,28 @@ class ActiveVisitorsWidget(QWidget):
         title.setStyleSheet(f"color: {PRIMARY_COLOR};")
         header_layout.addWidget(title)
         header_layout.addStretch()
+
+        # Search by HP No.
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search by HP No.")
+        self.search_input.setMinimumWidth(180)
+        self.search_input.setStyleSheet(
+            """
+            QLineEdit {
+                border: 1px solid #dcd6dd;
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 10pt;
+            }
+            QLineEdit:focus {
+                border-color: %s;
+            }
+            """ % PRIMARY_COLOR
+        )
+        # Trigger filtering when user presses Enter or after editing
+        self.search_input.returnPressed.connect(self.refresh_data)
+        self.search_input.textChanged.connect(self.refresh_data)
+        header_layout.addWidget(self.search_input)
 
         refresh_btn = QPushButton("Refresh")
         refresh_btn.setCursor(Qt.PointingHandCursor)
@@ -78,7 +100,7 @@ class ActiveVisitorsWidget(QWidget):
             "Person Visited",
             "Remarks",
             "Visit ID",
-            "ID Number",
+            "Pass Number",
             "Check-in Time",
             "Action"
         ])
@@ -111,7 +133,7 @@ class ActiveVisitorsWidget(QWidget):
             10: 170,
             11: 230,
             12: 150,  # Visit ID
-            13: 150,  # ID Number
+            13: 150,  # Pass Number
             14: 200,  # Check-in Time
             15: 200   # ✅ Action - expanded so button isn't cut
         }
@@ -134,10 +156,24 @@ class ActiveVisitorsWidget(QWidget):
     def refresh_data(self):
         try:
             visitors = self.db_manager.get_active_visitors() or []
-            self.status_label.setText(f"Total active visitors: {len(visitors)}")
+
+            # Optional filter by HP No from search box
+            hp_filter = ""
+            if hasattr(self, "search_input") and self.search_input.text().strip():
+                hp_filter = self.search_input.text().strip()
+
+            filtered = []
+            for v in visitors:
+                if hp_filter:
+                    hp_val = str(v.get("hp_no", ""))
+                    if hp_filter not in hp_val:
+                        continue
+                filtered.append(v)
+
+            self.status_label.setText(f"Total active visitors: {len(filtered)}")
             self.table.setRowCount(0)
 
-            for visitor in visitors:
+            for visitor in filtered:
                 self._add_row(visitor)
 
         except Exception:
@@ -167,7 +203,7 @@ class ActiveVisitorsWidget(QWidget):
             visitor.get('person_visited', ''),
             visitor.get('remarks', ''),
             visitor.get('pass_number', ''),   # ✅ Visit ID
-            visitor.get('id_number', ''),    # ✅ Physical ID Card Number
+            visitor.get('id_number', ''),    # ✅ Pass Number
             visitor.get('check_in_time', '')
         ]
 

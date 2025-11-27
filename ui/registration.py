@@ -3,10 +3,10 @@ from PyQt5.QtWidgets import (
     QLineEdit, QTextEdit, QPushButton, QLabel, QMessageBox,
     QFrame, QComboBox, QStackedWidget, QDialog, QListWidget, QListWidgetItem
 )
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt, pyqtSignal, QSize, QRegularExpression
+from PyQt5.QtGui import QFont, QRegularExpressionValidator
 from datetime import datetime
-import logging, re, traceback
+import logging, traceback
 
 from database import DatabaseManager
 from utils.styles import PRIMARY_COLOR
@@ -60,16 +60,50 @@ class VisitorSelectionDialog(QDialog):
 
         title = QLabel("Select Previously Registered Visitor")
         title.setFont(QFont("Segoe UI", 14, QFont.Bold))
-        title.setStyleSheet(f"color:{PRIMARY_COLOR}; margin-bottom:6px;")
+        title.setStyleSheet(f"color:{PRIMARY_COLOR}; margin-bottom:10px;")
         layout.addWidget(title)
 
         self.list_area = QListWidget()
+        self.list_area.setUniformItemSizes(False)
+        self.list_area.setSpacing(6)
+        self.list_area.setStyleSheet(
+            """
+            QListWidget {
+                background: #f7f5fb;
+                border: 1px solid #e0d8ec;
+                border-radius: 8px;
+                padding: 6px;
+            }
+            QListWidget::item {
+                background: white;
+                border-radius: 6px;
+                padding: 8px 10px;
+                margin: 2px 0px;
+                color: #3e3550;
+                font-size: 10.5pt;
+            }
+            QListWidget::item:selected {
+                background: #e5dcf4;
+                color: #2e2640;
+            }
+            QListWidget::item:hover {
+                background: #f0e8ff;
+            }
+            """
+        )
+
         for v in visitors:
-            item = QListWidgetItem(
-                f"{v.get('first_name','')} {v.get('last_name','')}  |  {v.get('nric')}  |  {v.get('hp_no')}"
-            )
+            name = f"{v.get('first_name','')} {v.get('last_name','')}".strip()
+            nric = v.get('nric') or "-"
+            hp_no = v.get('hp_no') or "-"
+            # Card-style, multi-line content with simple labeled fields
+            text = f"Name: {name}\nNRIC: {nric}\nHP No: {hp_no}"
+            item = QListWidgetItem(text)
             item.setData(Qt.UserRole, v)
+            # Give each row a comfortable height
+            item.setSizeHint(QSize(item.sizeHint().width(), 36))
             self.list_area.addItem(item)
+
         layout.addWidget(self.list_area)
 
         btn_row = QHBoxLayout()
@@ -194,25 +228,28 @@ class RegistrationWidget(QWidget):
         left = QFormLayout()
         right = QFormLayout()
 
-        # Core Fields
-        self.nric = self._make_input("NRIC")
+        # Core Fields (HP No first, then NRIC)
+        self.hp = self._make_input("HP No.")
+        # Allow flexible HP No: digits, '+' and '-' of any length
+        hp_validator = QRegularExpressionValidator(QRegularExpression(r"^[0-9+\-]*$"), self)
+        self.hp.setValidator(hp_validator)
         self.search_btn = QPushButton("Search")
         self.search_btn.clicked.connect(self.search_existing)
         self.search_btn.hide()
 
-        nric_row = QHBoxLayout()
-        nric_row.addWidget(self.nric)
-        nric_row.addWidget(self.search_btn)
+        hp_row = QHBoxLayout()
+        hp_row.addWidget(self.hp)
+        hp_row.addWidget(self.search_btn)
 
-        self.hp = self._make_input("HP No.")
+        self.nric = self._make_input("NRIC")
         self.fn = self._make_input("First Name")
         self.ln = self._make_input("Last Name")
         self.purpose = self._make_input("Purpose")
         self.dest = self._make_input("Destination")
         self.person = self._make_input("Person To Visit")
 
-        # NEW FIELD: Physical ID Number (optional)
-        self.id_number = self._make_input("Physical ID Number (Optional)")
+        # NEW FIELD: Pass Number (optional)
+        self.id_number = self._make_input("Pass Number (Optional)")
 
         self.category = self._make_input(combo=True, items=["Visitor", "Vendor", "Drop-off"])
         self.company = self._make_input("Company")
@@ -221,23 +258,23 @@ class RegistrationWidget(QWidget):
         self.remarks = QTextEdit()
         self.remarks.setStyleSheet(INPUT_STYLE)
 
-        self.nric_error = QLabel("")
-        self.nric_error.setStyleSheet("color:red; font-size:9pt;")
-        self.nric_error.hide()
-
         self.hp_error = QLabel("")
         self.hp_error.setStyleSheet("color:red; font-size:9pt;")
         self.hp_error.hide()
 
-        left.addRow(self._make_label("NRIC:"), nric_row)
-        left.addRow("", self.nric_error)
-        left.addRow(self._make_label("HP No:"), self.hp)
+        self.nric_error = QLabel("")
+        self.nric_error.setStyleSheet("color:red; font-size:9pt;")
+        self.nric_error.hide()
+
+        left.addRow(self._make_label("HP No:"), hp_row)
         left.addRow("", self.hp_error)
+        left.addRow(self._make_label("NRIC:"), self.nric)
+        left.addRow("", self.nric_error)
         left.addRow(self._make_label("First Name:"), self.fn)
         left.addRow(self._make_label("Last Name:"), self.ln)
         left.addRow(self._make_label("Purpose:"), self.purpose)
         left.addRow(self._make_label("Destination:"), self.dest)
-        left.addRow("ID Number:", self.id_number)
+        left.addRow("Pass Number:", self.id_number)
 
         right.addRow("Category:", self.category)
         right.addRow("Company:", self.company)
@@ -278,16 +315,22 @@ class RegistrationWidget(QWidget):
 
     # --------------------------------------------------
     def search_existing(self):
+        # Existing visitor lookup should be driven by HP No.
         nric = self.nric.text().strip().upper()
         hp = self.hp.text().strip()
 
-        if self.db_manager.has_active_visit(nric=nric, hp_no=hp):
+        if not hp:
+            QMessageBox.warning(self, "Missing", "Please enter HP No. to search.")
+            return
+
+        if self.db_manager.has_active_visit(nric="", hp_no=hp):
             QMessageBox.warning(self,
                                 "Visitor Already Inside",
                                 "This visitor is still active and cannot be checked-in again.")
             return
 
-        matches = self.db_manager.find_visitors_by_nric(nric=nric, hp_no=hp)
+        # Search history using HP No (NRIC left empty here)
+        matches = self.db_manager.find_visitors_by_nric(nric="", hp_no=hp)
         if not matches:
             QMessageBox.information(self, "Not Found", "No matching visitor found.")
             return
@@ -307,17 +350,22 @@ class RegistrationWidget(QWidget):
 
     # --------------------------------------------------
     def validate_nric(self):
-        text = self.nric.text().strip().upper()
-        valid = bool(re.match(r"^[STFG][0-9]{7}[A-Z]$", text))
+        """Relaxed NRIC validation: any non-empty text is accepted.
+
+        NRIC remains a required field but we no longer enforce a specific pattern.
+        """
+        text = self.nric.text().strip()
+        valid = bool(text)
         self.nric_error.setVisible(not valid)
-        self.nric_error.setText("Invalid NRIC format (Example: S1234567D)")
+        self.nric_error.setText("NRIC is required.")
         return valid
 
     def validate_hp(self):
+        """Relaxed HP No validation: must be non-empty and only contain digits, '+', or '-'."""
         text = self.hp.text().strip()
-        valid = text.isdigit() and len(text) == 8
+        valid = bool(text) and all(ch.isdigit() or ch in "+-" for ch in text)
         self.hp_error.setVisible(not valid)
-        self.hp_error.setText("HP No. must be 8 digits")
+        self.hp_error.setText("HP No. can contain digits.")
         return valid
 
     # --------------------------------------------------
@@ -352,6 +400,16 @@ class RegistrationWidget(QWidget):
                                 "Please fill:\n\n• " + "\n• ".join(missing))
             return
 
+        # Block registration if HP No is blacklisted
+        hp_val = self.hp.text().strip()
+        if self.db_manager.is_hp_blacklisted(hp_val):
+            QMessageBox.warning(
+                self,
+                "Blacklisted",
+                "This HP No. is blacklisted and cannot be registered.",
+            )
+            return
+
         try:
             visit_id = self.db_manager.generate_pass_number()
 
@@ -374,8 +432,8 @@ class RegistrationWidget(QWidget):
             )
 
             if not success:
-                QMessageBox.warning(self, "Validation Failed",
-                                    "NRIC must be S1234567D\nHP must be 8 digits.")
+                QMessageBox.warning(self, "Save Failed",
+                                    "Visitor could not be saved. Please check the details and try again.")
                 return
 
             QMessageBox.information(

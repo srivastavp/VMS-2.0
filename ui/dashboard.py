@@ -193,41 +193,22 @@ class DashboardWidget(QWidget):
             self.canvas.draw()
             return
 
-        # Expecting daily_data as list of tuples (date_string or date, count)
-        dates_raw = [d for d, _ in daily_data]
+        # Expecting daily_data as list of tuples (date, count)
+        days = [d.day for d, _ in daily_data]
         counts = [c for _, c in daily_data]
 
-        # Normalize date values to datetime objects
-        def parse_date(d):
-            if isinstance(d, datetime):
-                return d
-            # try several common formats; adapt to what DB returns
-            for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d"):
-                try:
-                    return datetime.strptime(d, fmt)
-                except Exception:
-                    continue
-            # fallback: try parsing ISO
-            try:
-                return datetime.fromisoformat(d)
-            except Exception:
-                # final fallback to today — keeps plot stable
-                return datetime.today()
-
-        dates = [parse_date(d) for d in dates_raw]
-
-        ax.plot(dates, counts, marker='o', linewidth=2, markersize=6)
-        ax.fill_between(dates, counts, alpha=0.3)
+        ax.plot(days, counts, marker='o', linewidth=2, markersize=6)
+        ax.fill_between(days, counts, alpha=0.3)
 
         ax.set_title('Daily Check-ins This Month', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Date', fontsize=10)
+        ax.set_xlabel('Day of Month', fontsize=10)
         ax.set_ylabel('Number of Check-ins', fontsize=10)
         ax.grid(True, alpha=0.3)
 
-        # Better date formatting for x-axis
-        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-        ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(mdates.AutoDateLocator()))
-        self.figure.autofmt_xdate(rotation=45)
+        # X-axis ticks from 1 to 31 (or up to the max day seen)
+        if days:
+            max_day = max(days)
+            ax.set_xticks(range(1, max_day + 1))
 
         self.figure.tight_layout()
         self.canvas.draw()

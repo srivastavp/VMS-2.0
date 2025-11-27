@@ -52,8 +52,15 @@ def main():
         try:
             window = MainWindow()
             window.show()
-            splash.close()
             app.main_window = window
+
+            # Run license + profile + login flow AFTER window is visible
+            if not window.run_startup_flow():
+                window.close()
+                splash.close()
+                sys.exit(0)
+
+            splash.close()
         except Exception as e:
             splash.close()
             QMessageBox.critical(None, "Startup Error", str(e))
