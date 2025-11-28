@@ -179,11 +179,21 @@ class LicenseDialog(QDialog):
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setStyleSheet(BTN_SECONDARY)
-        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.clicked.connect(self._on_cancel)
 
         btns.addWidget(cancel_btn)
         btns.addWidget(action_btn)
         layout.addRow("", btns)
+
+    def _on_cancel(self):
+        """Handle cancel button - show confirmation before exiting."""
+        reply = QMessageBox.question(
+            self, "Exit", "Are you sure you want to exit?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.reject()
+        # If No, do nothing - dialog stays open
 
     def _copy_mac(self):
         QApplication.clipboard().setText(self.mac_display.text())
@@ -218,6 +228,17 @@ class LicenseDialog(QDialog):
                 return
 
         self.accept()
+
+    def closeEvent(self, event):
+        """Handle close event - ask for confirmation before exiting."""
+        reply = QMessageBox.question(
+            self, "Exit", "Are you sure you want to exit?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            event.accept()
+        else:
+            event.ignore()
 
 
 class ProfilesDialog(QDialog):
@@ -511,7 +532,7 @@ class LoginDialog(QDialog):
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setStyleSheet(BTN_SECONDARY)
-        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.clicked.connect(self._on_cancel)
 
         login_btn = QPushButton("Login")
         login_btn.setStyleSheet(BTN_PRIMARY)
@@ -521,11 +542,32 @@ class LoginDialog(QDialog):
         btns.addWidget(login_btn)
         layout.addRow("", btns)
 
+    def _on_cancel(self):
+        """Handle cancel button - show confirmation before exiting."""
+        reply = QMessageBox.question(
+            self, "Exit", "Are you sure you want to exit?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.reject()
+        # If No, do nothing - dialog stays open
+
     def _on_login(self):
         if not self.user_id_input.text().strip() or not self.password_input.text():
             QMessageBox.warning(self, "Missing", "User ID and Password are required.")
             return
         self.accept()
+
+    def closeEvent(self, event):
+        """Handle close event - ask for confirmation before exiting."""
+        reply = QMessageBox.question(
+            self, "Exit", "Are you sure you want to exit?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            event.accept()
+        else:
+            event.ignore()
 
 
 # ==============================================================
