@@ -178,7 +178,9 @@ class ActiveVisitorsWidget(QWidget):
 
         except Exception:
             logging.error(traceback.format_exc())
-            QMessageBox.critical(self, "Error", "Failed to refresh visitor list.")
+            msg = QMessageBox(QMessageBox.Critical, "Error", "Failed to refresh visitor list.", QMessageBox.Ok, self)
+            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+            msg.exec_()
 
     # ===================================================================
     # ADD ROW
@@ -247,23 +249,26 @@ class ActiveVisitorsWidget(QWidget):
     # CHECKOUT
     # ===================================================================
     def checkout_visitor(self, visitor_id: int):
-        reply = QMessageBox.question(
-            self,
-            "Confirm Checkout",
-            "Are you sure you want to check out this visitor?",
-            QMessageBox.Yes | QMessageBox.No
-        )
+        msg = QMessageBox(QMessageBox.Question, "Confirm Checkout", "Are you sure you want to check out this visitor?", QMessageBox.Yes | QMessageBox.No, self)
+        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        reply = msg.exec_()
 
         if reply != QMessageBox.Yes:
             return
 
         try:
             if self.db_manager.checkout_visitor(visitor_id):
-                QMessageBox.information(self, "Success", "Visitor checked out successfully!")
+                msg = QMessageBox(QMessageBox.Information, "Success", "Visitor checked out successfully!", QMessageBox.Ok, self)
+                msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+                msg.exec_()
                 self.refresh_data()
                 self.visitor_checked_out.emit()
             else:
-                QMessageBox.critical(self, "Error", "Checkout failed.")
+                msg = QMessageBox(QMessageBox.Critical, "Error", "Checkout failed.", QMessageBox.Ok, self)
+                msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+                msg.exec_()
         except Exception:
             logging.error(traceback.format_exc())
-            QMessageBox.critical(self, "Error", "An error occurred during checkout.")
+            msg = QMessageBox(QMessageBox.Critical, "Error", "An error occurred during checkout.", QMessageBox.Ok, self)
+            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+            msg.exec_()

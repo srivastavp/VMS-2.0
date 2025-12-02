@@ -7,8 +7,9 @@ from PyQt5.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates
+from matplotlib.patches import Circle
 from datetime import datetime
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 # Keep your app constants in utils.styles (as before). Example placeholders:
 # from utils.styles import DASHBOARD_CARD_STYLE, BUTTON_STYLES, PRIMARY_COLOR
@@ -83,25 +84,51 @@ class DashboardWidget(QWidget):
 
         main_layout.addLayout(metrics_layout)
 
-        # Chart card
-        chart_frame = QFrame()
-        chart_frame.setStyleSheet(DASHBOARD_CARD_STYLE)
-        chart_layout = QVBoxLayout(chart_frame)
-        chart_layout.setContentsMargins(8, 8, 8, 8)
+        # Charts container - split into two halves
+        charts_container = QHBoxLayout()
+        charts_container.setSpacing(12)
 
-        chart_title = QLabel("Daily Check-ins This Month")
-        chart_title.setFont(QFont("Arial", 12, QFont.Bold))
-        chart_title.setAlignment(Qt.AlignCenter)
-        chart_layout.addWidget(chart_title)
+        # Left chart: Daily Check-ins Bar Chart
+        bar_chart_frame = QFrame()
+        bar_chart_frame.setStyleSheet(DASHBOARD_CARD_STYLE)
+        bar_chart_layout = QVBoxLayout(bar_chart_frame)
+        bar_chart_layout.setContentsMargins(8, 8, 8, 8)
 
-        # Matplotlib canvas - make it expand horizontally
-        self.figure = Figure(figsize=(8, 3), dpi=100)
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.canvas.updateGeometry()
-        chart_layout.addWidget(self.canvas)
+        bar_chart_title = QLabel("Daily Check-ins This Month")
+        bar_chart_title.setFont(QFont("Arial", 12, QFont.Bold))
+        bar_chart_title.setAlignment(Qt.AlignCenter)
+        bar_chart_layout.addWidget(bar_chart_title)
 
-        main_layout.addWidget(chart_frame)
+        # Bar chart matplotlib canvas
+        self.bar_figure = Figure(figsize=(4, 3), dpi=100)
+        self.bar_canvas = FigureCanvas(self.bar_figure)
+        self.bar_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.bar_canvas.updateGeometry()
+        bar_chart_layout.addWidget(self.bar_canvas)
+
+        charts_container.addWidget(bar_chart_frame)
+
+        # Right chart: Category Donut Chart
+        donut_chart_frame = QFrame()
+        donut_chart_frame.setStyleSheet(DASHBOARD_CARD_STYLE)
+        donut_chart_layout = QVBoxLayout(donut_chart_frame)
+        donut_chart_layout.setContentsMargins(8, 8, 8, 8)
+
+        donut_chart_title = QLabel("Visitors by Category")
+        donut_chart_title.setFont(QFont("Arial", 12, QFont.Bold))
+        donut_chart_title.setAlignment(Qt.AlignCenter)
+        donut_chart_layout.addWidget(donut_chart_title)
+
+        # Donut chart matplotlib canvas
+        self.donut_figure = Figure(figsize=(4, 3), dpi=100)
+        self.donut_canvas = FigureCanvas(self.donut_figure)
+        self.donut_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.donut_canvas.updateGeometry()
+        donut_chart_layout.addWidget(self.donut_canvas)
+
+        charts_container.addWidget(donut_chart_frame)
+
+        main_layout.addLayout(charts_container)
 
         # Keep container inside scroll area
         scroll.setWidget(container)
@@ -172,37 +199,38 @@ class DashboardWidget(QWidget):
 
         self.duration_card.value_label.setText(duration_text)
 
-        # Update the chart
-        self.update_chart()
+        # Update the charts
+        self.update_bar_chart()
+        self.update_donut_chart()
 
-    def update_chart(self):
-        self.figure.clear()
+    def update_bar_chart(self):
+        """Update the daily check-ins bar chart."""
+        self.bar_figure.clear()
 
         try:
-            daily_data: Optional[List[Tuple[str, int]]] = self.db_manager.get_daily_checkins_current_month()
+            daily_data: Optional[List[Tuple[date, int]]] = self.db_manager.get_daily_checkins_current_month()
         except Exception:
             daily_data = None
 
-        ax = self.figure.add_subplot(111)
+        ax = self.bar_figure.add_subplot(111)
 
         if not daily_data:
-            ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes, fontsize=12, color='gray')
-            ax.set_title('Daily Check-ins This Month')
+            ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes, fontsize=10, color='gray')
             ax.set_xticks([])
-            self.figure.tight_layout()
-            self.canvas.draw()
+            self.bar_figure.tight_layout()
+            self.bar_canvas.draw()
             return
 
         # Expecting daily_data as list of tuples (date, count)
         days = [d.day for d, _ in daily_data]
         counts = [c for _, c in daily_data]
 
-        ax.plot(days, counts, marker='o', linewidth=2, markersize=6)
+        ax.plot(days, counts, marker='o', linewidth=2, markersize=5)
         ax.fill_between(days, counts, alpha=0.3)
 
-        ax.set_title('Daily Check-ins This Month', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Day of Month', fontsize=10)
-        ax.set_ylabel('Number of Check-ins', fontsize=10)
+        ax.set_title('Daily Check-ins This Month', fontsize=10, fontweight='bold')
+        ax.set_xlabel('Day of Month', fontsize=9)
+        ax.set_ylabel('Number of Check-ins', fontsize=9)
         ax.grid(True, alpha=0.3)
 
         # X-axis ticks from 1 to 31 (or up to the max day seen)
@@ -210,8 +238,73 @@ class DashboardWidget(QWidget):
             max_day = max(days)
             ax.set_xticks(range(1, max_day + 1))
 
-        self.figure.tight_layout()
-        self.canvas.draw()
+        self.bar_figure.tight_layout()
+        self.bar_canvas.draw()
+
+    def update_donut_chart(self):
+        """Update the category donut chart."""
+        self.donut_figure.clear()
+
+        try:
+            category_counts: Dict[str, int] = self.db_manager.get_category_counts()
+        except Exception:
+            category_counts = {}
+
+        ax = self.donut_figure.add_subplot(111)
+
+        if not category_counts:
+            ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes, fontsize=10, color='gray')
+            self.donut_figure.tight_layout()
+            self.donut_canvas.draw()
+            return
+
+        # Prepare data for donut chart
+        categories = []
+        counts = []
+        colors = ['#7C5F7E', '#9d8fa0', '#f0ebf2']  # Primary color variations
+        
+        # Ensure we have the standard categories
+        standard_categories = ['Visitor', 'Vendor', 'Drop-off']
+        for cat in standard_categories:
+            if cat in category_counts:
+                categories.append(cat)
+                counts.append(category_counts[cat])
+        
+        # Add any other categories that might exist
+        for cat, count in category_counts.items():
+            if cat not in standard_categories:
+                categories.append(cat)
+                counts.append(count)
+
+        if not counts or sum(counts) == 0:
+            ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes, fontsize=10, color='gray')
+            self.donut_figure.tight_layout()
+            self.donut_canvas.draw()
+            return
+
+        # Calculate percentages
+        total = sum(counts)
+        percentages = [(c / total * 100) for c in counts]
+
+        # Create donut chart
+        wedges, texts, autotexts = ax.pie(
+            counts,
+            labels=categories,
+            autopct='%1.1f%%',
+            startangle=90,
+            colors=colors[:len(categories)],
+            pctdistance=0.85,
+            textprops={'fontsize': 9}
+        )
+
+        # Draw a circle in the center to make it a donut
+        centre_circle = Circle((0, 0), 0.70, fc='white')
+        ax.add_artist(centre_circle)
+
+        ax.set_title('Visitors by Category', fontsize=10, fontweight='bold', pad=10)
+
+        self.donut_figure.tight_layout()
+        self.donut_canvas.draw()
 
 
 # End of file
