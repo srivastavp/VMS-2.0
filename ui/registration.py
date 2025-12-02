@@ -450,9 +450,10 @@ class RegistrationWidget(QWidget):
         qr_buffer.seek(0)
 
         # -------------------------------------------
-        # Create passes directory
+        # Create passes directory on user's Desktop
         # -------------------------------------------
-        passes_dir = os.path.join(os.getcwd(), "passes")
+        desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+        passes_dir = os.path.join(desktop_dir, "passes")
         os.makedirs(passes_dir, exist_ok=True)
 
         pdf_path = os.path.join(passes_dir, f"{visit_id}.pdf")
