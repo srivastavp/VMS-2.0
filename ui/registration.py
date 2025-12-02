@@ -87,7 +87,6 @@ class VisitorSelectionDialog(QDialog):
         layout.addWidget(title)
 
         self.list_area = QListWidget()
-        self.list_area.setUniformItemSizes(False)
         self.list_area.setSpacing(6)
         self.list_area.setStyleSheet(
             """
@@ -158,7 +157,7 @@ class RegistrationWidget(QWidget):
         self._build_ui()
 
     # --------------------------------------------------
-    def _make_label(self, text, required=True):
+    def _make_label(self, text: str, required=True):
         if required:
             return QLabel(f"{text} <span style='color:red'>*</span>")
         return QLabel(text)
@@ -206,24 +205,25 @@ class RegistrationWidget(QWidget):
 
         card = QFrame()
         card.setObjectName("CardFrame")
-        card.setStyleSheet(CARD_STYLE)
         card.setMinimumWidth(480)
+        card.setStyleSheet(CARD_STYLE)
 
         cl = QVBoxLayout(card)
         cl.setContentsMargins(50, 40, 50, 40)
 
         title = QLabel("Select Visitor Type")
         title.setFont(QFont("Segoe UI", 18, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"color:{PRIMARY_COLOR}; margin-bottom:16px;")
+        title.setAlignment(Qt.AlignCenter)
         cl.addWidget(title)
 
         new_btn = QPushButton("New Visitor")
         existing_btn = QPushButton("Existing Visitor")
         new_btn.clicked.connect(lambda: self.show_form(False))
         existing_btn.clicked.connect(lambda: self.show_form(True))
-        new_btn.setMinimumHeight(55)
-        existing_btn.setMinimumHeight(55)
+
+        for b in (new_btn, existing_btn):
+            b.setMinimumHeight(55)
 
         cl.addWidget(new_btn)
         cl.addWidget(existing_btn)
@@ -243,16 +243,18 @@ class RegistrationWidget(QWidget):
         card = QFrame()
         card.setObjectName("CardFrame")
         card.setStyleSheet(CARD_STYLE)
+
         form_outer = QVBoxLayout(card)
 
         form = QHBoxLayout()
         left = QFormLayout()
         right = QFormLayout()
 
-        # Core Fields (HP No first, then NRIC)
+        # HP + search
         self.hp = self._make_input("HP No.")
         hp_validator = QRegularExpressionValidator(QRegularExpression(r"^[0-9+\-]*$"), self)
         self.hp.setValidator(hp_validator)
+
         self.search_btn = QPushButton("Search")
         self.search_btn.clicked.connect(self.search_existing)
         self.search_btn.hide()
@@ -261,15 +263,14 @@ class RegistrationWidget(QWidget):
         hp_row.addWidget(self.hp)
         hp_row.addWidget(self.search_btn)
 
+        # Remaining fields
         self.nric = self._make_input("NRIC")
         self.fn = self._make_input("First Name")
         self.ln = self._make_input("Last Name")
         self.purpose = self._make_input("Purpose")
         self.dest = self._make_input("Destination")
         self.person = self._make_input("Person To Visit")
-
         self.id_number = self._make_input("Pass Number (Optional)")
-
         self.category = self._make_input(combo=True, items=["Visitor", "Vendor", "Drop-off"])
         self.company = self._make_input("Company")
         self.vehicle = self._make_input("Vehicle No.")
@@ -277,6 +278,7 @@ class RegistrationWidget(QWidget):
         self.remarks = QTextEdit()
         self.remarks.setStyleSheet(INPUT_STYLE)
 
+        # Errors
         self.hp_error = QLabel("")
         self.hp_error.setStyleSheet("color:red; font-size:9pt;")
         self.hp_error.hide()
@@ -285,6 +287,7 @@ class RegistrationWidget(QWidget):
         self.nric_error.setStyleSheet("color:red; font-size:9pt;")
         self.nric_error.hide()
 
+        # Layout
         left.addRow(self._make_label("HP No:"), hp_row)
         left.addRow("", self.hp_error)
         left.addRow(self._make_label("NRIC:"), self.nric)
@@ -303,20 +306,24 @@ class RegistrationWidget(QWidget):
 
         form.addLayout(left, 1)
         form.addLayout(right, 1)
+
         form_outer.addLayout(form)
 
-        self.nric.textChanged.connect(self.validate_nric)
+        # Events
         self.hp.textChanged.connect(self.validate_hp)
+        self.nric.textChanged.connect(self.validate_nric)
 
+        # Buttons
         actions = QHBoxLayout()
         clear = QPushButton("Clear")
-        register = QPushButton("Register / Check-In")
+        reg = QPushButton("Register / Check-In")
         clear.clicked.connect(self.clear_form)
-        register.clicked.connect(self.register_visitor)
+        reg.clicked.connect(self.register_visitor)
 
         actions.addStretch()
         actions.addWidget(clear)
-        actions.addWidget(register)
+        actions.addWidget(reg)
+
         form_outer.addLayout(actions)
 
         p_layout.addWidget(card)
@@ -327,7 +334,7 @@ class RegistrationWidget(QWidget):
         self.stacked.setCurrentIndex(0)
         self.clear_form()
 
-    def show_form(self, existing):
+    def show_form(self, existing: bool):
         self.is_existing_visitor = existing
         self.search_btn.setVisible(existing)
         self.stacked.setCurrentIndex(1)
@@ -337,40 +344,17 @@ class RegistrationWidget(QWidget):
         hp = self.hp.text().strip()
 
         if not hp:
-            msg = QMessageBox(
-                QMessageBox.Warning,
-                "Missing",
-                "Please enter HP No. to search.",
-                QMessageBox.Ok,
-                self
-            )
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.warning(self, "Missing", "Please enter HP No. to search.")
             return
 
         if self.db_manager.has_active_visit(nric="", hp_no=hp):
-            msg = QMessageBox(
-                QMessageBox.Warning,
-                "Visitor Already Inside",
-                "This visitor is still active and cannot be checked-in again.",
-                QMessageBox.Ok,
-                self
-            )
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.warning(self, "Visitor Already Inside",
+                                "This visitor is still active and cannot be checked-in again.")
             return
 
         matches = self.db_manager.find_visitors_by_nric(nric="", hp_no=hp)
         if not matches:
-            msg = QMessageBox(
-                QMessageBox.Information,
-                "Not Found",
-                "No matching visitor found.",
-                QMessageBox.Ok,
-                self
-            )
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.information(self, "Not Found", "No matching visitor found.")
             return
 
         dialog = VisitorSelectionDialog(matches, self)
@@ -403,124 +387,137 @@ class RegistrationWidget(QWidget):
 
     # --------------------------------------------------
     def clear_form(self):
-        for f in [self.nric, self.hp, self.fn, self.ln,
-                  self.purpose, self.dest, self.company,
-                  self.vehicle, self.person, self.id_number]:
+        for f in [
+            self.nric, self.hp, self.fn, self.ln,
+            self.purpose, self.dest, self.company,
+            self.vehicle, self.person, self.id_number
+        ]:
             f.clear()
 
         self.category.setCurrentIndex(0)
         self.remarks.clear()
-        self.nric_error.hide()
         self.hp_error.hide()
+        self.nric_error.hide()
 
-    # --------------------------------------------------
-    def generate_visitor_pass_pdf(self, visit_id: str, check_in_time: datetime, organization: str = "") -> str:
+    # ------------------------------------------------------
+    # PDF PASS (3x4 inch portrait, compact QR)
+    # ------------------------------------------------------
+    def generate_visitor_pass_pdf(self, visit_id: str, check_in_time: datetime, organization="") -> str:
         """
-        Generate an ID-card-style PDF pass with QR code for a visitor.
-        Card size: 5.5 x 3.4 inches (landscape).
+        Generate a clean 3 × 4 inch portrait visitor badge PDF with a compact QR code.
         """
-        # Collect visitor data
-        first_name = self.fn.text().strip()
-        last_name = self.ln.text().strip()
-        full_name = f"{first_name} {last_name}".strip()
+        # Collect form values
+        first = self.fn.text().strip()
+        last = self.ln.text().strip()
+        full_name = f"{first} {last}".strip()
+
         hp_no = self.hp.text().strip()
         category = self.category.currentText()
         destination = self.dest.text().strip()
 
-        # Config for organization/location
+        # Load config
         cfg = load_config()
         org_name = organization or cfg.get("organization_name", "")
         location = cfg.get("location_name", "")
 
-        # QR payload (JSON)
-        payload_dict = {
-            "type": "VMS_PASS",
-            "visit_id": visit_id,
-            "hp_no": hp_no,
-            "name": full_name,
-            "category": category,
-            "destination": destination,
-            "in_time": check_in_time.isoformat(),
-            "organization": org_name,
-            "location": location,
-            "application": "M-Neo VMS"
-        }
-        qr_payload = json.dumps(payload_dict)
-
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_M,
-            box_size=6,
-            border=3,
+        # -------------------------------------------
+        # SUPER LIGHTWEIGHT QR PAYLOAD
+        # -------------------------------------------
+        payload_str = (
+            f"v|{visit_id}"
+            f"|h|{hp_no}"
+            f"|n|{full_name}"
+            f"|c|{category}"
+            f"|d|{destination}"
+            f"|t|{check_in_time.isoformat()}"
         )
-        qr.add_data(qr_payload)
+
+        # -------------------------------------------
+        # QR Code (least dense possible)
+        # -------------------------------------------
+        qr = qrcode.QRCode(
+            version=None,  # smallest QR version
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=5,
+            border=2,
+        )
+        qr.add_data(payload_str)
         qr.make(fit=True)
 
         qr_img = qr.make_image(fill_color="black", back_color="white")
         qr_buffer = io.BytesIO()
-        qr_img.save(qr_buffer, format="PNG")
+        qr_img.save(qr_buffer, format='PNG')
         qr_buffer.seek(0)
 
-        # Passes directory
+        # -------------------------------------------
+        # Create passes directory
+        # -------------------------------------------
         passes_dir = os.path.join(os.getcwd(), "passes")
         os.makedirs(passes_dir, exist_ok=True)
+
         pdf_path = os.path.join(passes_dir, f"{visit_id}.pdf")
 
-        # Card size in points
-        card_width = 5.5 * 72   # 396 pts
-        card_height = 3.4 * 72  # 244.8 pts
+        # -------------------------------------------
+        # PDF Dimensions (3" × 4" portrait)
+        # -------------------------------------------
+        card_w = 3 * 72      # 216 pts
+        card_h = 4 * 72      # 288 pts
 
-        c = canvas.Canvas(pdf_path, pagesize=(card_width, card_height))
+        c = canvas.Canvas(pdf_path, pagesize=(card_w, card_h))
 
-        # PRIMARY_COLOR border
+        # Primary theme color
         primary_rgb = tuple(int(PRIMARY_COLOR[i:i+2], 16) for i in (1, 3, 5))
-        primary_color_norm = tuple(x / 255.0 for x in primary_rgb)
-        c.setStrokeColor(primary_color_norm)
-        c.setLineWidth(2)
-        c.rect(3, 3, card_width - 6, card_height - 6, stroke=1, fill=0)
+        primary_norm = tuple(v / 255 for v in primary_rgb)
 
-        # -------- QR at top center --------
-        top_margin = 10
-        qr_size = 80  # smaller QR so more room for text
-        qr_x = (card_width - qr_size) / 2
-        qr_y = card_height - top_margin - qr_size
+        # Border
+        c.setStrokeColor(primary_norm)
+        c.setLineWidth(2)
+        c.rect(3, 3, card_w - 6, card_h - 6)
+
+        # -------------------------------------------
+        # QR (Top Center)
+        # -------------------------------------------
+        qr_size = 110  # ~1.5 inches
+        top_margin = 14
+        qr_x = (card_w - qr_size) / 2
+        qr_y = card_h - top_margin - qr_size
+
         qr_img_pil = Image.open(qr_buffer)
         c.drawImage(ImageReader(qr_img_pil), qr_x, qr_y, width=qr_size, height=qr_size)
 
-        # -------- Fields in a single line each --------
-        # We place them between qr bottom and footer line, evenly spaced.
-        footer_line_y = 60  # where footer separator line will be
-        field_area_top = qr_y - 20
-        field_area_bottom = footer_line_y + 8
+        # -------------------------------------------
+        # Visitor fields (label: value)
+        # -------------------------------------------
+        field_section_top = qr_y - 12
+        footer_line_y = 70
+        field_section_bottom = footer_line_y + 12
+
         fields = [
-            ("HP No.", hp_no or "-"),
-            ("Name", full_name or "-"),
-            ("Category", category or "-"),
-            ("Destination", destination or "-"),
+            ("HP No.", hp_no),
+            ("Name", full_name),
+            ("Category", category),
+            ("Destination", destination),
             ("In-Time", check_in_time.strftime("%Y-%m-%d %H:%M")),
         ]
 
-        num_fields = len(fields)
-        available_height = max(10, field_area_top - field_area_bottom)
-        # Even spacing; we keep some margin above/below
-        line_gap = available_height / (num_fields + 1)
+        available_height = field_section_top - field_section_bottom
+        line_gap = available_height / (len(fields) + 1)
 
-        c.setFont("Helvetica", 9)
+        c.setFont("Helvetica", 8.5)
         c.setFillColorRGB(0, 0, 0)
 
-        for idx, (label, value) in enumerate(fields, start=1):
-            y = field_area_bottom + idx * line_gap
+        for i, (label, value) in enumerate(fields, start=1):
+            y = field_section_bottom + i * line_gap
             text = f"{label}: {value}"
-            text_width = c.stringWidth(text, "Helvetica", 9)
-            x = (card_width - text_width) / 2
-            c.drawString(x, y, text)
+            tw = c.stringWidth(text, "Helvetica", 8.5)
+            c.drawString((card_w - tw) / 2, y, text)
 
-        # -------- Footer (org / location / M-Neo VMS + logo) --------
-        footer_y = 20
-        line_y = footer_line_y
-        c.setStrokeColor(primary_color_norm)
+        # -------------------------------------------
+        # Footer
+        # -------------------------------------------
+        c.setStrokeColor(primary_norm)
         c.setLineWidth(0.5)
-        c.line(20, line_y, card_width - 20, line_y)
+        c.line(15, footer_line_y, card_w - 15, footer_line_y)
 
         footer_texts = []
         if org_name:
@@ -532,24 +529,30 @@ class RegistrationWidget(QWidget):
         c.setFont("Helvetica", 7)
         c.setFillColorRGB(0.4, 0.4, 0.4)
 
-        footer_spacing = 9
-        first_line_y = footer_y + footer_spacing * (len(footer_texts) - 1)
-        for i, text in enumerate(footer_texts):
-            y = first_line_y - i * footer_spacing
-            text_width = c.stringWidth(text, "Helvetica", 7)
-            x = (card_width - text_width) / 2
-            c.drawString(x, y, text)
+        base_y = 23
+        spacing = 9
+        total = spacing * (len(footer_texts) - 1)
+        first_y = base_y + total
 
-        # Logo in bottom-left, small
-        app_base = Path(__file__).resolve().parents[1]
-        logo_path = app_base / "assets" / "logo.png"
+        for i, text in enumerate(footer_texts):
+            y = first_y - i * spacing
+            tw = c.stringWidth(text, "Helvetica", 7)
+            c.drawString((card_w - tw) / 2, y, text)
+
+        # Logo (optional)
+        logo_path = Path(__file__).resolve().parents[1] / "assets" / "logo.png"
         if logo_path.exists():
             try:
                 logo_img = Image.open(str(logo_path))
                 logo_size = 22
-                logo_x = 15
-                logo_y = 10
-                c.drawImage(ImageReader(logo_img), logo_x, logo_y, width=logo_size, height=logo_size)
+                c.drawImage(
+                    str(logo_path),
+                    10,
+                    8,
+                    width=logo_size,
+                    height=logo_size,
+                    mask='auto'
+                )
             except Exception:
                 pass
 
@@ -561,39 +564,28 @@ class RegistrationWidget(QWidget):
         if not self.validate_nric() or not self.validate_hp():
             return
 
-        required = [
+        required_fields = [
             (self.nric, "NRIC"),
             (self.hp, "HP No"),
             (self.fn, "First Name"),
             (self.ln, "Last Name"),
             (self.dest, "Destination"),
-            (self.purpose, "Purpose")
+            (self.purpose, "Purpose"),
         ]
 
-        missing = [name for field, name in required if not field.text().strip()]
+        missing = [name for field, name in required_fields if not field.text().strip()]
         if missing:
-            msg = QMessageBox(
-                QMessageBox.Warning,
-                "Missing Required Fields",
-                "Please fill:\n\n• " + "\n• ".join(missing),
-                QMessageBox.Ok,
-                self
+            QMessageBox.warning(
+                self, "Missing Required Fields",
+                "Please fill:\n\n• " + "\n• ".join(missing)
             )
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
             return
 
+        # Blacklist check
         hp_val = self.hp.text().strip()
         if self.db_manager.is_hp_blacklisted(hp_val):
-            msg = QMessageBox(
-                QMessageBox.Warning,
-                "Blacklisted",
-                "This HP No. is blacklisted and cannot be registered.",
-                QMessageBox.Ok,
-                self
-            )
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.warning(self, "Blacklisted",
+                                "This HP No. is blacklisted and cannot be registered.")
             return
 
         try:
@@ -619,66 +611,40 @@ class RegistrationWidget(QWidget):
             )
 
             if not success:
-                msg = QMessageBox(
-                    QMessageBox.Warning,
-                    "Save Failed",
-                    "Visitor could not be saved. Please check the details and try again.",
-                    QMessageBox.Ok,
-                    self
-                )
-                msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-                msg.exec_()
+                QMessageBox.warning(self, "Save Failed",
+                                    "Visitor could not be saved. Please try again.")
                 return
 
             cfg = load_config()
             organization = cfg.get("organization_name", "")
 
-            msg_box = QMessageBox(
-                QMessageBox.Question,
+            # Ask user for pass generation
+            reply = QMessageBox.question(
+                self,
                 "Generate Pass",
-                f"Visitor registered successfully.\nVisit ID: {visit_id}\n\nWould you like to generate a visitor pass PDF?",
-                QMessageBox.Yes | QMessageBox.No,
-                self
+                f"Visitor registered successfully.\nVisit ID: {visit_id}\n\nGenerate visitor pass PDF?",
+                QMessageBox.Yes | QMessageBox.No
             )
-            msg_box.setWindowFlags(msg_box.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg_box.setDefaultButton(QMessageBox.Yes)
-            reply = msg_box.exec_()
 
             if reply == QMessageBox.Yes:
                 try:
                     pdf_path = self.generate_visitor_pass_pdf(visit_id, check_in_time, organization)
-                    msg = QMessageBox(
-                        QMessageBox.Information,
+                    QMessageBox.information(
+                        self,
                         "Pass Generated",
-                        f"Visitor pass PDF has been generated:\n{pdf_path}\n\nYou can open or print the PDF using your system tools.",
-                        QMessageBox.Ok,
-                        self
+                        f"Visitor pass PDF generated:\n{pdf_path}\n\nOpen or print it using system tools."
                     )
-                    msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-                    msg.exec_()
                 except Exception:
-                    logging.error(f"Failed to generate visitor pass PDF: {traceback.format_exc()}")
-                    msg = QMessageBox(
-                        QMessageBox.Critical,
+                    logging.error(traceback.format_exc())
+                    QMessageBox.critical(
+                        self,
                         "Pass Generation Failed",
-                        "Pass generation failed. The visitor has still been registered successfully.",
-                        QMessageBox.Ok,
-                        self
+                        "PDF generation failed, but visitor registration succeeded."
                     )
-                    msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-                    msg.exec_()
 
             self.visitor_registered.emit()
             self.show_selection()
 
         except Exception:
             logging.error(traceback.format_exc())
-            msg = QMessageBox(
-                QMessageBox.Critical,
-                "Error",
-                "Registration failed.",
-                QMessageBox.Ok,
-                self
-            )
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.critical(self, "Error", "Registration failed.")
