@@ -285,7 +285,8 @@ class DatabaseManager:
     # -------------------------
     @staticmethod
     def validate_nric(nric: str) -> bool:
-        return bool(re.match(r"^[STFG][0-9]{7}[A-Z]$", nric.upper()))
+        # Accept any non-empty string as valid NRIC
+        return bool(nric and str(nric).strip())
 
     @staticmethod
     def validate_hp(hp_no: str) -> bool:

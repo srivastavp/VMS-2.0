@@ -869,7 +869,10 @@ class MainWindow(QMainWindow):
 
             self.current_user = creds
             self.current_role = creds.get("role", "user")
+            # Store the plain password in the user object for the session
+            self.current_user['_plain_password'] = login.password_input.text()
             self.current_password_plain = login.password_input.text()
+            
             # Persist last logged-in user for auto-login on next startup
             cfg = load_config()
             cfg["last_user_id"] = self.current_user.get("user_id")
@@ -893,10 +896,16 @@ class MainWindow(QMainWindow):
 
         self.current_user = user
         self.current_role = user.get("role", "user")
-        self.current_password_plain = None
+        # For auto-login, we don't have the plain password, so we'll use the hashed one
+        # This will still allow the password visibility toggle to work, but won't show the actual password
+        self.current_password_plain = user.get("password_hash", "")
         return True
 
     def _open_profiles(self):
+        # If no password is set, try to get it from the current user object
+        if not self.current_password_plain and self.current_user:
+            self.current_password_plain = self.current_user.get('_plain_password', '')
+            
         dlg = ProfilesDialog(
             self.db_manager,
             self.current_user or {},
