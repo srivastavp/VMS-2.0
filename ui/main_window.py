@@ -808,38 +808,51 @@ class MainWindow(QMainWindow):
     # Startup License Logic
     # ------------------------------------------------------
     def _ensure_license(self) -> bool:
-        info = self.db_manager.get_license_info()
-
-        if info and info.get("license_key"):
-            # Active?
-            if info.get("is_active"):
-                if self.license_manager.is_licensed():
-                    # Require org setup if missing
-                    cfg = load_config()
-                    if not cfg.get("organization_name"):
-                        WelcomeDialog(self).exec_()
-                    return True
-            else:
-                # Not active → LOGIN popup (key only)
-                dlg = LicenseDialog(self.license_manager, mode="login", parent=self)
-                if dlg.exec_() == QDialog.Accepted:
-                    cfg = load_config()
-                    if not cfg.get("organization_name"):
-                        WelcomeDialog(self).exec_()
-                    return True
-                return False
-
-        # No license stored → Activation popup
-        dlg = LicenseDialog(self.license_manager, mode="activate", parent=self)
-        if dlg.exec_() != QDialog.Accepted:
-            return False
-
-        # After activation → setup org details
+        # DEMO MODE: License activation commented out for client demo
+        # Hardcoded expiry date: 2026-03-10
+        DEMO_EXPIRY_DATE = "2026-03-10"
+        
+        # # Original license activation logic (commented out for demo)
+        # info = self.db_manager.get_license_info()
+        #
+        # if info and info.get("license_key"):
+        #     # Active?
+        #     if info.get("is_active"):
+        #         if self.license_manager.is_licensed():
+        #             # Require org setup if missing
+        #             cfg = load_config()
+        #             if not cfg.get("organization_name"):
+        #                 WelcomeDialog(self).exec_()
+        #             return True
+        #     else:
+        #         # Not active → LOGIN popup (key only)
+        #         dlg = LicenseDialog(self.license_manager, mode="login", parent=self)
+        #         if dlg.exec_() == QDialog.Accepted:
+        #             cfg = load_config()
+        #             if not cfg.get("organization_name"):
+        #                 WelcomeDialog(self).exec_()
+        #             return True
+        #         return False
+        #
+        # # No license stored → Activation popup
+        # dlg = LicenseDialog(self.license_manager, mode="activate", parent=self)
+        # if dlg.exec_() != QDialog.Accepted:
+        #     return False
+        #
+        # # After activation → setup org details
+        # cfg = load_config()
+        # if not cfg.get("organization_name"):
+        #     WelcomeDialog(self).exec_()
+        #
+        # return self.license_manager.is_licensed()
+        
+        # Demo mode: Skip license activation, ensure org setup
         cfg = load_config()
         if not cfg.get("organization_name"):
             WelcomeDialog(self).exec_()
-
-        return self.license_manager.is_licensed()
+        
+        # Always return True for demo (license check bypassed)
+        return True
 
     def _ensure_user_login(self) -> bool:
         try:

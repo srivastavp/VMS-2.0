@@ -1,25 +1,37 @@
 #!/usr/bin/env python3
 """
-Script to build executable using PyInstaller
+Correct build script for M-Neo VMS
+Produces a folder-based PyInstaller build compatible with installer.iss
 """
 
 import os
-import sys
+import subprocess
 import shutil
 from pathlib import Path
 
+APP_NAME = "M-Neo VMS"
+DIST_DIR = Path("dist") / APP_NAME
+
+def clean_previous_build():
+    print("Cleaning previous build...")
+    shutil.rmtree("build", ignore_errors=True)
+    shutil.rmtree("dist", ignore_errors=True)
+    shutil.rmtree("__pycache__", ignore_errors=True)
+
 def build_executable():
-    """Build Windows executable"""
-    print("Building Visitor Management System executable...")
-    
-    # PyInstaller command
+    print("Building application with PyInstaller...")
+
+    # Folder-based build (NO --onefile)
     cmd = [
         "pyinstaller",
-        "--onefile",
+        "--noconfirm",
         "--windowed",
-        "--name=VisitorManagementSystem",
-        "--icon=logo.ico",  # Add icon if available
-        "--add-data=requirements.txt;.",
+        f"--name={APP_NAME}",
+        "--add-data=assets;assets",
+        "--add-data=data;data",
+        "--add-data=ui;ui",
+        "--add-data=utils;utils",
+        "--add-data=passes;passes",
         "--hidden-import=PyQt5.sip",
         "--hidden-import=pandas",
         "--hidden-import=matplotlib",
@@ -28,38 +40,20 @@ def build_executable():
         "--hidden-import=cryptography",
         "main.py"
     ]
-    
-    # Run PyInstaller
-    import subprocess
+
     result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode == 0:
-        print("Build successful!")
-        print("Executable created in 'dist' directory")
-        
-        # Create distribution package
-        dist_dir = Path("dist")
-        if dist_dir.exists():
-            print("\nCreating distribution package...")
-            
-            # Copy additional files
-            files_to_copy = [
-                "README.md",
-                "requirements.txt"
-            ]
-            
-            for file in files_to_copy:
-                if Path(file).exists():
-                    shutil.copy2(file, dist_dir)
-            
-            print("Distribution package ready!")
-    else:
-        print("Build failed!")
-        print("Error:", result.stderr)
+
+    if result.returncode != 0:
+        print("❌ Build failed:")
+        print(result.stderr)
         return False
-    
+
+    print("✅ Build succeeded!")
+    print(f"Output created at: dist/{APP_NAME}")
     return True
 
 if __name__ == "__main__":
-    if not build_executable():
-        sys.exit(1)
+    clean_previous_build()
+    ok = build_executable()
+    if not ok:
+        exit(1)
