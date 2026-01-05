@@ -6,7 +6,6 @@ Visitor Management System
 import sys
 import logging
 from PyQt5.QtWidgets import QApplication, QMessageBox
-from PyQt5.QtCore import Qt
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QIcon
 
@@ -64,9 +63,7 @@ def main():
             splash.close()
         except Exception as e:
             splash.close()
-            msg = QMessageBox(QMessageBox.Critical, "Startup Error", str(e), QMessageBox.Ok, None)
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.critical(None, "Startup Error", str(e))
             sys.exit(1)
 
     QTimer.singleShot(2000, start_app)

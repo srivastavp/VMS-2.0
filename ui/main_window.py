@@ -2,12 +2,11 @@
 
 from PyQt5.QtWidgets import (
     QMainWindow, QTabWidget, QVBoxLayout, QWidget,
-    QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QLabel,
+    QMessageBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QLabel,
     QPushButton, QHBoxLayout, QToolBar, QAction, QApplication, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QInputDialog, QComboBox, QToolButton, QMenu, QSizePolicy, QMessageBox
+    QInputDialog, QComboBox, QToolButton, QMenu, QSizePolicy
 )
-from PyQt5.QtCore import Qt
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QIcon
 from pathlib import Path
@@ -19,12 +18,6 @@ import logging
 from utils.license import LicenseManager
 from database import DatabaseManager
 from utils.styles import MAIN_STYLE
-
-# Helper to create message boxes without help button
-def _msg_box(icon, title, text, buttons, parent):
-    msg = QMessageBox(icon, title, text, buttons, parent)
-    msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-    return msg
 
 from ui.registration import RegistrationWidget
 from ui.dashboard import DashboardWidget
@@ -124,9 +117,7 @@ class LicenseDialog(QDialog):
         self.mode = mode  # activate | login
         self.setModal(True)
         self.setFixedSize(520, 380)
-        flags = Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint
-        flags &= ~Qt.WindowContextHelpButtonHint
-        self.setWindowFlags(flags)
+        self.setWindowFlags(Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint)
         self._build_ui()
 
     def _build_ui(self):
@@ -196,26 +187,23 @@ class LicenseDialog(QDialog):
 
     def _on_cancel(self):
         """Handle cancel button - show confirmation before exiting."""
-        msg = QMessageBox(QMessageBox.Question, "Exit", "Are you sure you want to exit?", QMessageBox.Yes | QMessageBox.No, self)
-        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        reply = msg.exec_()
+        reply = QMessageBox.question(
+            self, "Exit", "Are you sure you want to exit?",
+            QMessageBox.Yes | QMessageBox.No
+        )
         if reply == QMessageBox.Yes:
             self.reject()
         # If No, do nothing - dialog stays open
 
     def _copy_mac(self):
         QApplication.clipboard().setText(self.mac_display.text())
-        msg = QMessageBox(QMessageBox.Information, "Copied", "MAC address copied to clipboard.", QMessageBox.Ok, self)
-        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        msg.exec_()
+        QMessageBox.information(self, "Copied", "MAC address copied to clipboard.")
 
     def _on_action(self):
         key = self.license_input.text().strip()
 
         if not key:
-            msg = QMessageBox(QMessageBox.Warning, "Missing", "License key is required.", QMessageBox.Ok, self)
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.warning(self, "Missing", "License key is required.")
             return
 
         if self.mode == "activate":
@@ -223,37 +211,30 @@ class LicenseDialog(QDialog):
             try:
                 datetime.strptime(expiry, "%Y-%m-%d")
             except:
-                msg = QMessageBox(QMessageBox.Warning, "Invalid", "Expiry must be YYYY-MM-DD.", QMessageBox.Ok, self)
-                msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-                msg.exec_()
+                QMessageBox.warning(self, "Invalid", "Expiry must be YYYY-MM-DD.")
                 return
 
             if not self.license_manager.validate_license(key, expiry):
-                msg = QMessageBox(QMessageBox.Warning, "Invalid", "Key does not match device + expiry.", QMessageBox.Ok, self)
-                msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-                msg.exec_()
+                QMessageBox.warning(self, "Invalid", "Key does not match device + expiry.")
                 return
 
             if not self.license_manager.activate_license(key, expiry):
-                msg = QMessageBox(QMessageBox.Critical, "Error", "Failed to save license.", QMessageBox.Ok, self)
-                msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-                msg.exec_()
+                QMessageBox.critical(self, "Error", "Failed to save license.")
                 return
 
         else:  # login
             if not self.license_manager.login_with_key(key):
-                msg = QMessageBox(QMessageBox.Warning, "Login Failed", "Invalid or expired key.", QMessageBox.Ok, self)
-                msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-                msg.exec_()
+                QMessageBox.warning(self, "Login Failed", "Invalid or expired key.")
                 return
 
         self.accept()
 
     def closeEvent(self, event):
         """Handle close event - ask for confirmation before exiting."""
-        msg = QMessageBox(QMessageBox.Question, "Exit", "Are you sure you want to exit?", QMessageBox.Yes | QMessageBox.No, self)
-        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        reply = msg.exec_()
+        reply = QMessageBox.question(
+            self, "Exit", "Are you sure you want to exit?",
+            QMessageBox.Yes | QMessageBox.No
+        )
         if reply == QMessageBox.Yes:
             event.accept()
         else:
@@ -271,9 +252,7 @@ class ProfilesDialog(QDialog):
         self.setModal(True)
         # Slightly wider/taller so long names are clearly visible
         self.setFixedSize(1100, 560)
-        flags = Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint
-        flags &= ~Qt.WindowContextHelpButtonHint
-        self.setWindowFlags(flags)
+        self.setWindowFlags(Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint)
         self._build_ui()
         self._load_users()
 
@@ -443,7 +422,7 @@ class ProfilesDialog(QDialog):
 
         role = dlg.role_input.currentText().strip() or "user"
         if role not in ("super_admin", "super_user", "user"):
-            _msg_box(QMessageBox.Warning, "Invalid", "Role must be super_admin, super_user or user.", QMessageBox.Ok, self).exec_()
+            QMessageBox.warning(self, "Invalid", "Role must be super_admin, super_user or user.")
             return
 
         ok = self.db.create_user(
@@ -454,7 +433,7 @@ class ProfilesDialog(QDialog):
             role=role,
         )
         if not ok:
-            _msg_box(QMessageBox.Critical, "Error", "Failed to create user (maybe duplicate User ID).", QMessageBox.Ok, self).exec_()
+            QMessageBox.critical(self, "Error", "Failed to create user (maybe duplicate User ID).")
             return
 
         self._load_users()
@@ -464,7 +443,7 @@ class ProfilesDialog(QDialog):
             return
         user = self._users[row]
         if user.get("user_id") == self.current_user.get("user_id"):
-            _msg_box(QMessageBox.Warning, "Not allowed", "You cannot change your own role.", QMessageBox.Ok, self).exec_()
+            QMessageBox.warning(self, "Not allowed", "You cannot change your own role.")
             return
 
         roles = ["super_admin", "super_user", "user"]
@@ -479,7 +458,7 @@ class ProfilesDialog(QDialog):
             return
 
         if not self.db.update_user_role(user["id"], new_role):
-            _msg_box(QMessageBox.Critical, "Error", "Failed to update role.", QMessageBox.Ok, self).exec_()
+            QMessageBox.critical(self, "Error", "Failed to update role.")
             return
         self._load_users()
 
@@ -489,7 +468,7 @@ class ProfilesDialog(QDialog):
         user = self._users[row]
         new_active = not bool(user.get("is_active", True))
         if not self.db.update_user_active_status(user["id"], new_active):
-            _msg_box(QMessageBox.Critical, "Error", "Failed to update active status.", QMessageBox.Ok, self).exec_()
+            QMessageBox.critical(self, "Error", "Failed to update active status.")
             return
         self._load_users()
 
@@ -498,16 +477,20 @@ class ProfilesDialog(QDialog):
             return
         user = self._users[row]
         if user.get("user_id") == self.current_user.get("user_id"):
-            _msg_box(QMessageBox.Warning, "Not allowed", "You cannot delete your own account.", QMessageBox.Ok, self).exec_()
+            QMessageBox.warning(self, "Not allowed", "You cannot delete your own account.")
             return
 
-        msg = _msg_box(QMessageBox.Question, "Delete User", f"Are you sure you want to delete user '{user.get('user_id', '')}'?", QMessageBox.Yes | QMessageBox.No, self)
-        reply = msg.exec_()
+        reply = QMessageBox.question(
+            self,
+            "Delete User",
+            f"Are you sure you want to delete user '{user.get('user_id', '')}'?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
         if reply != QMessageBox.Yes:
             return
 
         if not self.db.delete_user(user["id"]):
-            _msg_box(QMessageBox.Critical, "Error", "Failed to delete user.", QMessageBox.Ok, self).exec_()
+            QMessageBox.critical(self, "Error", "Failed to delete user.")
             return
         self._load_users()
 
@@ -517,9 +500,7 @@ class LoginDialog(QDialog):
         super().__init__(parent)
         self.setModal(True)
         self.setFixedSize(520, 320)
-        flags = Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint
-        flags &= ~Qt.WindowContextHelpButtonHint
-        self.setWindowFlags(flags)
+        self.setWindowFlags(Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint)
         self._build_ui()
 
     def _build_ui(self):
@@ -563,24 +544,26 @@ class LoginDialog(QDialog):
 
     def _on_cancel(self):
         """Handle cancel button - show confirmation before exiting."""
-        msg = QMessageBox(QMessageBox.Question, "Exit", "Are you sure you want to exit?", QMessageBox.Yes | QMessageBox.No, self)
-        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        reply = msg.exec_()
+        reply = QMessageBox.question(
+            self, "Exit", "Are you sure you want to exit?",
+            QMessageBox.Yes | QMessageBox.No
+        )
         if reply == QMessageBox.Yes:
             self.reject()
         # If No, do nothing - dialog stays open
 
     def _on_login(self):
         if not self.user_id_input.text().strip() or not self.password_input.text():
-            _msg_box(QMessageBox.Warning, "Missing", "User ID and Password are required.", QMessageBox.Ok, self).exec_()
+            QMessageBox.warning(self, "Missing", "User ID and Password are required.")
             return
         self.accept()
 
     def closeEvent(self, event):
         """Handle close event - ask for confirmation before exiting."""
-        msg = QMessageBox(QMessageBox.Question, "Exit", "Are you sure you want to exit?", QMessageBox.Yes | QMessageBox.No, self)
-        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        reply = msg.exec_()
+        reply = QMessageBox.question(
+            self, "Exit", "Are you sure you want to exit?",
+            QMessageBox.Yes | QMessageBox.No
+        )
         if reply == QMessageBox.Yes:
             event.accept()
         else:
@@ -595,9 +578,7 @@ class WelcomeDialog(QDialog):
         super().__init__(parent)
         self.setModal(True)
         self.setFixedSize(520, 460)
-        flags = Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint
-        flags &= ~Qt.WindowContextHelpButtonHint
-        self.setWindowFlags(flags)
+        self.setWindowFlags(Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint)
         self._build_ui()
 
     def _build_ui(self):
@@ -656,7 +637,7 @@ class WelcomeDialog(QDialog):
 
     def _save(self):
         if not self.org.text().strip() or not self.loc.text().strip():
-            _msg_box(QMessageBox.Warning, "Missing", "Organization and Location are required.", QMessageBox.Ok, self).exec_()
+            QMessageBox.warning(self, "Missing", "Organization and Location are required.")
             return
 
         cfg = load_config()
@@ -677,9 +658,7 @@ class CreateProfileDialog(QDialog):
         self.first_user = first_user
         self.setModal(True)
         self.setFixedSize(520, 460)
-        flags = Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint
-        flags &= ~Qt.WindowContextHelpButtonHint
-        self.setWindowFlags(flags)
+        self.setWindowFlags(Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint)
         self._build_ui(default_org)
 
     def _build_ui(self, default_org: str):
@@ -752,13 +731,13 @@ class CreateProfileDialog(QDialog):
         role = self.role_input.currentText().strip() or "user"
 
         if not name or not org or not uid or not pwd:
-            _msg_box(QMessageBox.Warning, "Missing", "All fields are required.", QMessageBox.Ok, self).exec_()
+            QMessageBox.warning(self, "Missing", "All fields are required.")
             return
         if pwd != cpwd:
-            _msg_box(QMessageBox.Warning, "Mismatch", "Passwords do not match.", QMessageBox.Ok, self).exec_()
+            QMessageBox.warning(self, "Mismatch", "Passwords do not match.")
             return
         if role not in ("super_admin", "super_user", "user"):
-            _msg_box(QMessageBox.Warning, "Invalid", "Role must be super_admin, super_user or user.", QMessageBox.Ok, self).exec_()
+            QMessageBox.warning(self, "Invalid", "Role must be super_admin, super_user or user.")
             return
 
         self.accept()
@@ -791,7 +770,7 @@ class MainWindow(QMainWindow):
         Returns False if the app should exit (e.g. user cancels).
         """
         if not self._ensure_license():
-            _msg_box(QMessageBox.Critical, "License Error", "License missing or invalid.", QMessageBox.Ok, self).exec_()
+            QMessageBox.critical(self, "License Error", "License missing or invalid.")
             return False
 
         # If someone was previously logged in and we didn't explicitly log out,
@@ -864,7 +843,7 @@ class MainWindow(QMainWindow):
                 role="super_admin",
             )
             if not created:
-                _msg_box(QMessageBox.Critical, "Error", "Failed to create initial user.", QMessageBox.Ok, self).exec_()
+                QMessageBox.critical(self, "Error", "Failed to create initial user.")
                 return False
 
             try:
@@ -885,7 +864,7 @@ class MainWindow(QMainWindow):
                 login.password_input.text(),
             )
             if not creds or not creds.get("is_active", True):
-                _msg_box(QMessageBox.Warning, "Invalid credentials", "Invalid credentials.", QMessageBox.Ok, self).exec_()
+                QMessageBox.warning(self, "Invalid credentials", "Invalid credentials.")
                 continue
 
             self.current_user = creds
@@ -1061,22 +1040,28 @@ class MainWindow(QMainWindow):
     def _about(self):
         cfg = load_config()
 
-        msg = _msg_box(QMessageBox.Information, "About", f"""
+        QMessageBox.information(
+            self,
+            "About",
+            f"""
 <b>M-Neo VMS</b><br>
 Organization: {cfg.get('organization_name', '—')}<br>
 Location: {cfg.get('location_name', '—')}<br>
 Region: {cfg.get('region', '—')}<br>
 Address: {cfg.get('address', '—')}<br>
 Country: {cfg.get('country', '—')}<br>
-""", QMessageBox.Ok, self)
-        msg.exec_()
+"""
+        )
 
     # ------------------------------------------------------
     # LOGOUT (back to user login; license remains active)
     # ------------------------------------------------------
     def _logout(self):
-        msg = _msg_box(QMessageBox.Question, "Log Out", "You will be returned to the login screen. Continue?", QMessageBox.Yes | QMessageBox.No, self)
-        reply = msg.exec_()
+        reply = QMessageBox.question(
+            self, "Log Out",
+            "You will be returned to the login screen. Continue?",
+            QMessageBox.Yes | QMessageBox.No
+        )
         if reply != QMessageBox.Yes:
             return
 
@@ -1178,9 +1163,10 @@ Country: {cfg.get('country', '—')}<br>
     # Exit dialog
     # ------------------------------------------------------
     def closeEvent(self, event):
-        msg = QMessageBox(QMessageBox.Question, "Exit", "Are you sure you want to exit?", QMessageBox.Yes | QMessageBox.No, self)
-        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        reply = msg.exec_()
+        reply = QMessageBox.question(
+            self, "Exit", "Are you sure you want to exit?",
+            QMessageBox.Yes | QMessageBox.No
+        )
         if reply == QMessageBox.Yes:
             event.accept()
         else:

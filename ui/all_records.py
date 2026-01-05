@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-                            QPushButton, QHBoxLayout, QLabel, QDateEdit,
+                            QPushButton, QHBoxLayout, QLabel, QDateEdit, QMessageBox,
                             QHeaderView, QGroupBox, QFormLayout, QFileDialog, QLineEdit,
-                            QDialog, QMessageBox)
+                            QDialog)
 from PyQt5.QtCore import Qt, QDate, QSize, QRegularExpression
 from PyQt5.QtGui import QFont, QIcon, QRegularExpressionValidator
 from database import DatabaseManager
@@ -175,9 +175,7 @@ class AllRecordsWidget(QWidget):
     # ✅ Export remains untouched and correct
     def export_to_excel(self):
         if self.table.rowCount() == 0:
-            msg = QMessageBox(QMessageBox.Warning, "No Data", "No records to export!", QMessageBox.Ok, self)
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.warning(self, "No Data", "No records to export!")
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
@@ -207,15 +205,11 @@ class AllRecordsWidget(QWidget):
             df = pd.DataFrame(data, columns=headers)
             df.to_excel(file_path, index=False, engine="openpyxl")
 
-            msg = QMessageBox(QMessageBox.Information, "Success", f"Records exported successfully to:\n{file_path}", QMessageBox.Ok, self)
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.information(self, "Success", f"Records exported successfully to:\n{file_path}")
 
         except Exception:
             logging.error(traceback.format_exc())
-            msg = QMessageBox(QMessageBox.Critical, "Export Error", "Failed to export records.", QMessageBox.Ok, self)
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.critical(self, "Export Error", "Failed to export records.")
 
     def open_blacklist_dialog(self):
         dlg = BlacklistDialog(self.db_manager, self)
@@ -228,7 +222,6 @@ class BlacklistDialog(QDialog):
         self.db_manager = db_manager
         self.setWindowTitle("Blacklist")
         self.setMinimumSize(700, 400)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
 
@@ -327,47 +320,38 @@ class BlacklistDialog(QDialog):
     def add_hp(self):
         hp = self.hp_input.text().strip()
         if not hp:
-            msg = QMessageBox(QMessageBox.Warning, "Missing", "Please enter an HP No.", QMessageBox.Ok, self)
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.warning(self, "Missing", "Please enter an HP No.")
             return
 
         # If already blacklisted, inform and refresh
         if self.db_manager.is_hp_blacklisted(hp):
-            msg = QMessageBox(QMessageBox.Information, "Already Blacklisted", "This HP No. is already blacklisted.", QMessageBox.Ok, self)
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.information(self, "Already Blacklisted", "This HP No. is already blacklisted.")
             self.refresh_table()
             return
 
         if not self.db_manager.add_to_blacklist_from_visit(hp):
-            msg = QMessageBox(QMessageBox.Warning, "Not Found", "No past visit found for this HP No.", QMessageBox.Ok, self)
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.warning(self, "Not Found", "No past visit found for this HP No.")
             return
 
-        msg = QMessageBox(QMessageBox.Information, "Added", "HP No. has been added to blacklist.", QMessageBox.Ok, self)
-        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        msg.exec_()
+        QMessageBox.information(self, "Added", "HP No. has been added to blacklist.")
         self.hp_input.clear()
         self.refresh_table()
 
     def whitelist_hp(self, hp_no: str):
         if not hp_no:
             return
-        msg = QMessageBox(QMessageBox.Question, "Whitelist", f"Remove HP No. {hp_no} from blacklist?", QMessageBox.Yes | QMessageBox.No, self)
-        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        reply = msg.exec_()
+        reply = QMessageBox.question(
+            self,
+            "Whitelist",
+            f"Remove HP No. {hp_no} from blacklist?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
         if reply != QMessageBox.Yes:
             return
 
         if not self.db_manager.remove_from_blacklist(hp_no):
-            msg = QMessageBox(QMessageBox.Critical, "Error", "Failed to remove from blacklist.", QMessageBox.Ok, self)
-            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            msg.exec_()
+            QMessageBox.critical(self, "Error", "Failed to remove from blacklist.")
             return
 
-        msg = QMessageBox(QMessageBox.Information, "Whitelisted", "HP No. has been removed from blacklist.", QMessageBox.Ok, self)
-        msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        msg.exec_()
+        QMessageBox.information(self, "Whitelisted", "HP No. has been removed from blacklist.")
         self.refresh_table()
