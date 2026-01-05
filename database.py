@@ -281,18 +281,6 @@ class DatabaseManager:
             logging.exception("Device identity verification failed")
 
     # -------------------------
-    # VALIDATORS
-    # -------------------------
-    @staticmethod
-    def validate_nric(nric: str) -> bool:
-        # Accept any non-empty string as valid NRIC
-        return bool(nric and str(nric).strip())
-
-    @staticmethod
-    def validate_hp(hp_no: str) -> bool:
-        return hp_no.isdigit() and len(hp_no) == 8
-
-    # -------------------------
     # VISITOR STATE HELPERS (for existing visitor logic)
     # -------------------------
     def has_active_visit(self, nric: str = "", hp_no: str = "") -> bool:
@@ -395,11 +383,11 @@ class DatabaseManager:
         On success: invalidate caches relevant to active visitors and counts.
         """
         try:
-            if kwargs.get("nric"):
-                kwargs["nric"] = kwargs["nric"].upper()
-                if not self.validate_nric(kwargs["nric"]):
-                    logging.debug("Invalid NRIC format when adding visitor")
-                    return False
+            # NRIC is mandatory but no format constraint
+            if not kwargs.get("nric") or not kwargs["nric"].strip():
+                logging.debug("NRIC is required when adding visitor")
+                return False
+            kwargs["nric"] = kwargs["nric"].strip().upper()
 
             if kwargs.get("hp_no") and not self.validate_hp(kwargs["hp_no"]):
                 logging.debug("Invalid HP format when adding visitor")
@@ -629,6 +617,29 @@ class DatabaseManager:
         except sqlite3.Error:
             logging.exception("get_daily_checkins_current_month failed")
             return []
+
+    def get_category_counts(self) -> Dict[str, int]:
+        """
+        Get count of visitors by category (Visitor, Vendor, Drop-off).
+        Returns a dictionary with category names as keys and counts as values.
+        """
+        try:
+            rows = self._fetchall(
+                '''
+                SELECT category, COUNT(*) as count
+                FROM visitors
+                GROUP BY category
+                '''
+            )
+            result = {}
+            for row in rows:
+                category = row["category"] if isinstance(row, sqlite3.Row) else row[0]
+                count = row["count"] if isinstance(row, sqlite3.Row) else row[1]
+                result[category] = count
+            return result
+        except sqlite3.Error:
+            logging.exception("get_category_counts failed")
+            return {}
 
     def get_todays_checkin_count(self) -> int:
         cached = self._cache.get("counts:today")
