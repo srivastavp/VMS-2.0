@@ -6,12 +6,13 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QAbstractItemView, QLineEdit
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
-from PyQt5.QtGui import QFont, QIcon
+from PyQt5.QtGui import QFont
 import logging
 import traceback
 
 from database import DatabaseManager
 from utils.styles import PRIMARY_COLOR
+from utils.pdpa import mask_nric
 
 
 class ActiveVisitorsWidget(QWidget):
@@ -30,10 +31,25 @@ class ActiveVisitorsWidget(QWidget):
 
         # ---------- HEADER ----------
         header_layout = QHBoxLayout()
-        title = QLabel("Active Visitors")
-        title.setFont(QFont("Segoe UI", 16, QFont.Bold))
-        title.setStyleSheet(f"color: {PRIMARY_COLOR};")
-        header_layout.addWidget(title)
+
+        self.checkout_btn = QPushButton("Checkout Visitor")
+        self.checkout_btn.setCursor(Qt.PointingHandCursor)
+        self.checkout_btn.setEnabled(False)
+        self.checkout_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: #D4A017;
+                color: #1f1f1f;
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{ background: #C29113; }}
+            QPushButton:pressed {{ background: #A97D10; }}
+            QPushButton:disabled {{ background: #c9c3cc; color: #ffffff; }}
+        """)
+        self.checkout_btn.clicked.connect(self.checkout_selected)
+        header_layout.addWidget(self.checkout_btn)
+
         header_layout.addStretch()
 
         # Search by HP No.
@@ -74,16 +90,18 @@ class ActiveVisitorsWidget(QWidget):
         refresh_btn.clicked.connect(self.refresh_data)
         header_layout.addWidget(refresh_btn)
 
-        layout.addLayout(header_layout)
+        header_layout.addStretch()
 
-        # ---------- STATUS ----------
+        # Status + centralized checkout on the right
         self.status_label = QLabel()
         self.status_label.setStyleSheet("color: #666; font-size: 10pt; margin: 8px 0;")
-        layout.addWidget(self.status_label)
+        header_layout.addWidget(self.status_label)
+
+        layout.addLayout(header_layout)
 
         # ---------- TABLE ----------
         self.table = QTableWidget()
-        self.table.setColumnCount(16)
+        self.table.setColumnCount(15)
 
         # ✅ RE-ORDERED AS REQUESTED
         self.table.setHorizontalHeaderLabels([
@@ -101,8 +119,7 @@ class ActiveVisitorsWidget(QWidget):
             "Remarks",
             "Visit ID",
             "Pass Number",
-            "Check-in Time",
-            "Action"
+            "Check-in Time"
         ])
 
         # Hide internal DB ID
@@ -135,7 +152,6 @@ class ActiveVisitorsWidget(QWidget):
             12: 150,  # Visit ID
             13: 150,  # Pass Number
             14: 200,  # Check-in Time
-            15: 200   # ✅ Action - expanded so button isn't cut
         }
 
         for col in range(self.table.columnCount()):
@@ -148,7 +164,15 @@ class ActiveVisitorsWidget(QWidget):
         layout.addWidget(self.table)
         self.setLayout(layout)
 
+        # Enable / disable checkout button based on selection
+        self.table.itemSelectionChanged.connect(self._update_checkout_btn_state)
+        self.table.itemDoubleClicked.connect(self._clear_selection_on_double_click)
+
         self.refresh_data()
+
+    def _clear_selection_on_double_click(self, item: QTableWidgetItem):
+        self.table.clearSelection()
+        self._update_checkout_btn_state()
 
     # ===================================================================
     # DATA REFRESH
@@ -176,6 +200,9 @@ class ActiveVisitorsWidget(QWidget):
             for visitor in filtered:
                 self._add_row(visitor)
 
+            self.table.clearSelection()
+            self._update_checkout_btn_state()
+
         except Exception:
             logging.error(traceback.format_exc())
             msg = QMessageBox(QMessageBox.Critical, "Error", "Failed to refresh visitor list.", QMessageBox.Ok, self)
@@ -193,7 +220,7 @@ class ActiveVisitorsWidget(QWidget):
         # ✅ DATA ORDER MATCHES HEADER ORDER
         data = [
             str(visitor.get('id', '')),
-            visitor.get('nric', ''),
+            mask_nric(visitor.get('nric', '') or ''),
             visitor.get('hp_no', ''),
             visitor.get('first_name', ''),
             visitor.get('last_name', ''),
@@ -214,36 +241,28 @@ class ActiveVisitorsWidget(QWidget):
             item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
             self.table.setItem(row, col, item)
 
-        # ---------- CHECKOUT BUTTON ----------
-        visitor_id = visitor.get("id")
+    def _update_checkout_btn_state(self):
+        if not hasattr(self, "checkout_btn"):
+            return
+        has_selection = len(self.table.selectionModel().selectedRows()) > 0
+        self.checkout_btn.setEnabled(has_selection)
 
-        checkout_btn = QPushButton("Check Out")
-        checkout_btn.setCursor(Qt.PointingHandCursor)
-        checkout_btn.setIcon(QIcon("assets/icons/logout.png"))
-        checkout_btn.setIconSize(QSize(16, 16))
-        checkout_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {PRIMARY_COLOR};
-                color: white;
-                border-radius: 6px;
-                padding: 10px 18px;  /* ✅ wider so text not clipped */
-                font-weight: 600;
-            }}
-            QPushButton:hover {{ background: {PRIMARY_COLOR}CC; }}
-            QPushButton:pressed {{ background: {PRIMARY_COLOR}AA; }}
-        """)
+    def checkout_selected(self):
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
 
-        checkout_btn.clicked.connect(
-            lambda checked, v_id=visitor_id: self.checkout_visitor(v_id)
-        )
+        row = rows[0].row()
+        id_item = self.table.item(row, 0)
+        if not id_item:
+            return
 
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addWidget(checkout_btn)
-        layout.setAlignment(Qt.AlignCenter)
+        try:
+            visitor_id = int(id_item.text())
+        except ValueError:
+            return
 
-        self.table.setCellWidget(row, 15, container)
+        self.checkout_visitor(visitor_id)
 
     # ===================================================================
     # CHECKOUT

@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt, QDate, QSize, QRegularExpression
 from PyQt5.QtGui import QFont, QIcon, QRegularExpressionValidator
 from database import DatabaseManager
 from utils.styles import BUTTON_STYLES, PRIMARY_COLOR
+from utils.pdpa import mask_nric
 import pandas as pd
 from datetime import datetime
 import logging
@@ -155,6 +156,9 @@ class AllRecordsWidget(QWidget):
                 for col, key in enumerate(cols):
                     value = r.get(key, "")
 
+                    if key == 'nric':
+                        value = mask_nric(value or "")
+
                     # ✅ ONLY CHANGE: Proper duration formatting
                     if key == 'duration':
                         duration = r.get('duration')
@@ -232,7 +236,7 @@ class BlacklistDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        header = QLabel("Blacklisted HP Numbers")
+        header = QLabel("Blacklisted Visitors")
         header.setFont(QFont("Arial", 14, QFont.Bold))
         header.setStyleSheet(f"color: {PRIMARY_COLOR}; margin-bottom: 8px;")
         layout.addWidget(header)
@@ -240,10 +244,7 @@ class BlacklistDialog(QDialog):
         # Add row
         add_row = QHBoxLayout()
         self.hp_input = QLineEdit()
-        self.hp_input.setPlaceholderText("Enter HP No. to blacklist")
-        # HP No: allow digits, '+' and '-' of any length (consistent with registration)
-        hp_validator = QRegularExpressionValidator(QRegularExpression(r"^[0-9+\-]*$"), self)
-        self.hp_input.setValidator(hp_validator)
+        self.hp_input.setPlaceholderText("Enter HP No or NRIC to blacklist")
         add_btn = QPushButton("Add")
         add_btn.setStyleSheet(BUTTON_STYLES['warning'])
         add_btn.clicked.connect(self.add_hp)
@@ -284,7 +285,7 @@ class BlacklistDialog(QDialog):
             hp_no = entry.get("hp_no", "")
             self.table.setItem(row, 0, QTableWidgetItem(hp_no))
             self.table.setItem(row, 1, QTableWidgetItem(entry.get("name", "")))
-            self.table.setItem(row, 2, QTableWidgetItem(entry.get("nric", "")))
+            self.table.setItem(row, 2, QTableWidgetItem(mask_nric(entry.get("nric", "") or "")))
             self.table.setItem(row, 3, QTableWidgetItem(str(entry.get("created_at", ""))))
 
             # Action cell: whitelist button
@@ -325,28 +326,34 @@ class BlacklistDialog(QDialog):
             self.table.setCellWidget(row, 4, container)
 
     def add_hp(self):
-        hp = self.hp_input.text().strip()
-        if not hp:
-            msg = QMessageBox(QMessageBox.Warning, "Missing", "Please enter an HP No.", QMessageBox.Ok, self)
+        identifier = self.hp_input.text().strip()
+        if not identifier:
+            msg = QMessageBox(QMessageBox.Warning, "Missing", "Please enter an HP No or NRIC.", QMessageBox.Ok, self)
             msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
             msg.exec_()
             return
 
+        looks_like_hp = all(ch.isdigit() or ch in "+-" for ch in identifier)
+        if looks_like_hp:
+            already = self.db_manager.is_blacklisted(hp_no=identifier)
+        else:
+            already = self.db_manager.is_blacklisted(nric=identifier.upper())
+
         # If already blacklisted, inform and refresh
-        if self.db_manager.is_hp_blacklisted(hp):
-            msg = QMessageBox(QMessageBox.Information, "Already Blacklisted", "This HP No. is already blacklisted.", QMessageBox.Ok, self)
+        if already:
+            msg = QMessageBox(QMessageBox.Information, "Already Blacklisted", "This HP No / NRIC is already blacklisted.", QMessageBox.Ok, self)
             msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
             msg.exec_()
             self.refresh_table()
             return
 
-        if not self.db_manager.add_to_blacklist_from_visit(hp):
-            msg = QMessageBox(QMessageBox.Warning, "Not Found", "No past visit found for this HP No.", QMessageBox.Ok, self)
+        if not self.db_manager.add_to_blacklist_from_identifier(identifier):
+            msg = QMessageBox(QMessageBox.Warning, "Not Found", "No past visit found for this HP No or NRIC.", QMessageBox.Ok, self)
             msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
             msg.exec_()
             return
 
-        msg = QMessageBox(QMessageBox.Information, "Added", "HP No. has been added to blacklist.", QMessageBox.Ok, self)
+        msg = QMessageBox(QMessageBox.Information, "Added", "Entry has been added to blacklist.", QMessageBox.Ok, self)
         msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         msg.exec_()
         self.hp_input.clear()

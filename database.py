@@ -767,16 +767,28 @@ class DatabaseManager:
 
     def get_user_by_credentials(self, user_id: str, password_plain: str) -> Optional[Dict]:
         try:
-            password_hash = self._hash_password(user_id, password_plain)
-            row = self._fetchone(
+            # Case-insensitive user_id match, but password remains case-sensitive.
+            # IMPORTANT: password hash uses the stored canonical user_id.
+            u = (user_id or "").strip()
+            row_user = self._fetchone(
                 '''
-                SELECT id, name, organization, user_id, role, is_active, created_at
+                SELECT id, name, organization, user_id, password_hash, role, is_active, created_at
                 FROM users
-                WHERE user_id = ? AND password_hash = ?
+                WHERE UPPER(user_id) = UPPER(?)
                 LIMIT 1
                 ''',
-                (user_id, password_hash)
+                (u,)
             )
+
+            if not row_user:
+                return None
+
+            expected_hash = row_user["password_hash"]
+            computed_hash = self._hash_password(row_user["user_id"], password_plain)
+            if computed_hash != expected_hash:
+                return None
+
+            row = row_user
             if not row:
                 return None
             return {
@@ -799,7 +811,7 @@ class DatabaseManager:
                 '''
                 SELECT id, name, organization, user_id, role, is_active, created_at
                 FROM users
-                WHERE user_id = ?
+                WHERE UPPER(user_id) = UPPER(?)
                 LIMIT 1
                 ''',
                 (user_id,),
@@ -877,14 +889,37 @@ class DatabaseManager:
     # -------------------------
     def is_hp_blacklisted(self, hp_no: str) -> bool:
         """Return True if the given HP number is blacklisted."""
+        return self.is_blacklisted(hp_no=hp_no)
+
+    def is_blacklisted(self, hp_no: str = "", nric: str = "") -> bool:
+        """Return True if either HP No or NRIC is blacklisted.
+
+        Presentation layer should mask NRIC, but callers MUST pass raw NRIC here.
+        """
+        hp_no = (hp_no or "").strip()
+        nric = (nric or "").strip().upper()
+        if not hp_no and not nric:
+            return False
+
         try:
+            clauses = []
+            params: List[Any] = []
+
+            if hp_no:
+                clauses.append("hp_no = ?")
+                params.append(hp_no)
+            if nric:
+                clauses.append("nric = ?")
+                params.append(nric)
+
+            where_clause = " OR ".join(clauses)
             row = self._fetchone(
-                "SELECT 1 FROM blacklist WHERE hp_no = ? LIMIT 1",
-                (hp_no,),
+                f"SELECT 1 FROM blacklist WHERE ({where_clause}) LIMIT 1",
+                tuple(params),
             )
             return bool(row)
         except sqlite3.Error:
-            logging.exception("is_hp_blacklisted failed")
+            logging.exception("is_blacklisted failed")
             return False
 
     def add_to_blacklist_from_visit(self, hp_no: str, reason: str = "") -> bool:
@@ -894,13 +929,14 @@ class DatabaseManager:
         try:
             # Try to derive name/NRIC from most recent completed visit
             visit = self.get_most_recent_visit_for_autofill(hp_no=hp_no)
+            if not visit:
+                return False
             name = ""
             nric = ""
-            if visit:
-                fn = visit.get("first_name", "") or ""
-                ln = visit.get("last_name", "") or ""
-                name = f"{fn} {ln}".strip()
-                nric = visit.get("nric", "") or ""
+            fn = visit.get("first_name", "") or ""
+            ln = visit.get("last_name", "") or ""
+            name = f"{fn} {ln}".strip()
+            nric = visit.get("nric", "") or ""
 
             with self.get_connection() as conn:
                 cur = conn.cursor()
@@ -915,6 +951,52 @@ class DatabaseManager:
             return True
         except sqlite3.Error:
             logging.exception("add_to_blacklist_from_visit failed")
+            return False
+
+    def add_to_blacklist_from_identifier(self, identifier: str, reason: str = "") -> bool:
+        """Blacklist by HP No OR NRIC.
+
+        Schema constraint: blacklist.hp_no is NOT NULL and UNIQUE.
+        - If identifier looks like an HP No: blacklist directly.
+        - Else treat as NRIC: resolve the most recent visit to obtain an HP No,
+          then blacklist that HP No (storing raw NRIC in the same row).
+        """
+        value = (identifier or "").strip()
+        if not value:
+            return False
+
+        looks_like_hp = all(ch.isdigit() or ch in "+-" for ch in value)
+        if looks_like_hp:
+            return self.add_to_blacklist_from_visit(value, reason=reason)
+
+        nric = value.upper()
+        visit = self.get_most_recent_visit_for_autofill(nric=nric)
+        if not visit:
+            return False
+
+        hp_no = (visit.get("hp_no") or "").strip()
+        if not hp_no:
+            return False
+
+        # Use visit-derived name and the provided NRIC for deterministic storage
+        fn = visit.get("first_name", "") or ""
+        ln = visit.get("last_name", "") or ""
+        name = f"{fn} {ln}".strip()
+
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    '''
+                    INSERT OR REPLACE INTO blacklist (hp_no, name, nric, reason)
+                    VALUES (?, ?, ?, ?)
+                    ''',
+                    (hp_no, name, nric, reason),
+                )
+                conn.commit()
+            return True
+        except sqlite3.Error:
+            logging.exception("add_to_blacklist_from_identifier failed")
             return False
 
     def get_blacklist(self) -> List[Dict]:

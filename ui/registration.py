@@ -10,6 +10,7 @@ import logging, traceback
 import os
 import io
 import json
+import sqlite3
 from pathlib import Path
 import qrcode
 from reportlab.pdfgen import canvas
@@ -18,6 +19,7 @@ from PIL import Image
 
 from database import DatabaseManager
 from utils.styles import PRIMARY_COLOR
+from utils.pdpa import mask_nric
 
 
 # ------------------------------------------------------
@@ -116,13 +118,16 @@ class VisitorSelectionDialog(QDialog):
 
         for v in visitors:
             name = f"{v.get('first_name','')} {v.get('last_name','')}".strip()
-            nric = v.get('nric') or "-"
+            nric = mask_nric(v.get('nric') or "") or "-"
             hp_no = v.get('hp_no') or "-"
             text = f"Name: {name}\nNRIC: {nric}\nHP No: {hp_no}"
             item = QListWidgetItem(text)
             item.setData(Qt.UserRole, v)
             item.setSizeHint(QSize(item.sizeHint().width(), 36))
             self.list_area.addItem(item)
+
+        if self.list_area.count() > 0:
+            self.list_area.setCurrentRow(0)
 
         layout.addWidget(self.list_area)
 
@@ -136,6 +141,7 @@ class VisitorSelectionDialog(QDialog):
 
         select_btn.clicked.connect(self._select)
         cancel_btn.clicked.connect(self.reject)
+        self.list_area.itemDoubleClicked.connect(lambda _item: self._select())
 
     def _select(self):
         item = self.list_area.currentItem()
@@ -154,6 +160,7 @@ class RegistrationWidget(QWidget):
         super().__init__()
         self.db_manager = db_manager
         self.is_existing_visitor = False
+        self._selected_existing_nric_raw = None
         self._build_ui()
 
     # --------------------------------------------------
@@ -250,21 +257,23 @@ class RegistrationWidget(QWidget):
         left = QFormLayout()
         right = QFormLayout()
 
-        # HP + search
-        self.hp = self._make_input("HP No.")
-        hp_validator = QRegularExpressionValidator(QRegularExpression(r"^[0-9+\-]*$"), self)
-        self.hp.setValidator(hp_validator)
+        # Existing Visitor: Search (NRIC / HP)
+        self.search_input = self._make_input("NRIC or HP No")
 
         self.search_btn = QPushButton("Search")
         self.search_btn.clicked.connect(self.search_existing)
+        self.search_input.hide()
         self.search_btn.hide()
 
-        hp_row = QHBoxLayout()
-        hp_row.addWidget(self.hp)
-        hp_row.addWidget(self.search_btn)
+        search_row = QHBoxLayout()
+        search_row.addWidget(self.search_input)
+        search_row.addWidget(self.search_btn)
 
         # Remaining fields
         self.nric = self._make_input("NRIC")
+        self.hp = self._make_input("HP No.")
+        hp_validator = QRegularExpressionValidator(QRegularExpression(r"^[0-9+\-]*$"), self)
+        self.hp.setValidator(hp_validator)
         self.fn = self._make_input("First Name")
         self.ln = self._make_input("Last Name")
         self.purpose = self._make_input("Purpose")
@@ -288,10 +297,10 @@ class RegistrationWidget(QWidget):
         self.nric_error.hide()
 
         # Layout
-        left.addRow(self._make_label("HP No:"), hp_row)
-        left.addRow("", self.hp_error)
         left.addRow(self._make_label("NRIC:"), self.nric)
         left.addRow("", self.nric_error)
+        left.addRow(self._make_label("HP No:"), self.hp)
+        left.addRow("", self.hp_error)
         left.addRow(self._make_label("First Name:"), self.fn)
         left.addRow(self._make_label("Last Name:"), self.ln)
         left.addRow(self._make_label("Purpose:"), self.purpose)
@@ -308,6 +317,9 @@ class RegistrationWidget(QWidget):
         form.addLayout(right, 1)
 
         form_outer.addLayout(form)
+
+        # Keep search at top (only for Existing Visitor)
+        form_outer.insertLayout(0, search_row)
 
         # Events
         self.hp.textChanged.connect(self.validate_hp)
@@ -336,39 +348,97 @@ class RegistrationWidget(QWidget):
 
     def show_form(self, existing: bool):
         self.is_existing_visitor = existing
+        self.search_input.setVisible(existing)
         self.search_btn.setVisible(existing)
         self.stacked.setCurrentIndex(1)
 
-    # --------------------------------------------------
-    def search_existing(self):
-        hp = self.hp.text().strip()
+        if existing:
+            self.search_input.setFocus()
 
-        if not hp:
-            QMessageBox.warning(self, "Missing", "Please enter HP No. to search.")
+    # --------------------------------------------------
+    def _find_existing_visitors_by_query(self, value: str):
+        """
+        Return a list of most-recent completed visit profiles matching either NRIC or HP No.
+        This is a UI-level helper (no schema changes) so Existing Visitor search can match
+        both fields without the user specifying which.
+        """
+        raw = (value or "").strip()
+        if not raw:
+            return []
+
+        nric = raw.upper()
+        hp_no = raw
+
+        query = """
+            SELECT
+                v.nric,
+                v.hp_no,
+                v.first_name,
+                v.last_name,
+                v.company,
+                v.vehicle_number,
+                v.purpose,
+                v.destination,
+                v.person_visited,
+                v.check_in_time AS last_visit
+            FROM visitors v
+            JOIN (
+                SELECT nric, hp_no, MAX(check_in_time) AS mx
+                FROM visitors
+                WHERE (nric = ? OR hp_no = ?)
+                  AND check_out_time IS NOT NULL
+                GROUP BY nric, hp_no
+            ) t
+              ON v.nric = t.nric
+             AND v.hp_no = t.hp_no
+             AND v.check_in_time = t.mx
+            ORDER BY v.check_in_time DESC
+        """
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute(query, (nric, hp_no))
+                rows = cur.fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            logging.error(traceback.format_exc())
+            return []
+
+    def _apply_selected_visitor(self, v: dict):
+        raw_nric = v.get("nric", "") or ""
+        self._selected_existing_nric_raw = raw_nric
+        self.nric.setText(mask_nric(raw_nric))
+        self.hp.setText(v.get("hp_no", ""))
+        self.fn.setText(v.get("first_name", ""))
+        self.ln.setText(v.get("last_name", ""))
+        self.purpose.setText(v.get("purpose", ""))
+        self.dest.setText(v.get("destination", ""))
+        self.person.setText(v.get("person_visited", ""))
+        self.company.setText(v.get("company", ""))
+        self.vehicle.setText(v.get("vehicle_number", ""))
+
+    def search_existing(self):
+        value = self.search_input.text().strip()
+
+        if not value:
+            QMessageBox.warning(self, "Missing", "Please enter NRIC or HP No. to search.")
             return
 
-        if self.db_manager.has_active_visit(nric="", hp_no=hp):
+        if self.db_manager.has_active_visit(nric=value.strip().upper(), hp_no=value.strip()):
             QMessageBox.warning(self, "Visitor Already Inside",
                                 "This visitor is still active and cannot be checked-in again.")
             return
 
-        matches = self.db_manager.find_visitors_by_nric(nric="", hp_no=hp)
+        matches = self._find_existing_visitors_by_query(value)
         if not matches:
-            QMessageBox.information(self, "Not Found", "No matching visitor found.")
+            QMessageBox.information(self, "Not Found", "No visitor found.")
             return
 
         dialog = VisitorSelectionDialog(matches, self)
         if dialog.exec_():
-            v = dialog.selected_visitor
-            self.nric.setText(v.get("nric", ""))
-            self.hp.setText(v.get("hp_no", ""))
-            self.fn.setText(v.get("first_name", ""))
-            self.ln.setText(v.get("last_name", ""))
-            self.purpose.setText(v.get("purpose", ""))
-            self.dest.setText(v.get("destination", ""))
-            self.person.setText(v.get("person_visited", ""))
-            self.company.setText(v.get("company", ""))
-            self.vehicle.setText(v.get("vehicle_number", ""))
+            self._apply_selected_visitor(dialog.selected_visitor)
 
     # --------------------------------------------------
     def validate_nric(self):
@@ -393,6 +463,11 @@ class RegistrationWidget(QWidget):
             self.vehicle, self.person, self.id_number
         ]:
             f.clear()
+
+        if hasattr(self, "search_input"):
+            self.search_input.clear()
+
+        self._selected_existing_nric_raw = None
 
         self.category.setCurrentIndex(0)
         self.remarks.clear()
@@ -584,7 +659,11 @@ class RegistrationWidget(QWidget):
 
         # Blacklist check
         hp_val = self.hp.text().strip()
-        if self.db_manager.is_hp_blacklisted(hp_val):
+        nric_val = (self.nric.text().strip() or "").upper()
+        if self.is_existing_visitor and self._selected_existing_nric_raw:
+            nric_val = (self._selected_existing_nric_raw.strip() or "").upper()
+
+        if self.db_manager.is_blacklisted(hp_no=hp_val, nric=nric_val):
             QMessageBox.warning(self, "Blacklisted",
                                 "This HP No. is blacklisted and cannot be registered.")
             return
@@ -593,8 +672,12 @@ class RegistrationWidget(QWidget):
             visit_id = self.db_manager.generate_pass_number()
             check_in_time = datetime.now()
 
+            nric_raw = (self.nric.text().strip() or "").upper()
+            if self.is_existing_visitor and self._selected_existing_nric_raw:
+                nric_raw = (self._selected_existing_nric_raw.strip() or "").upper()
+
             success = self.db_manager.add_visitor(
-                nric=self.nric.text().strip().upper(),
+                nric=nric_raw,
                 hp_no=self.hp.text().strip(),
                 first_name=self.fn.text().strip(),
                 last_name=self.ln.text().strip(),
@@ -616,32 +699,11 @@ class RegistrationWidget(QWidget):
                                     "Visitor could not be saved. Please try again.")
                 return
 
-            cfg = load_config()
-            organization = cfg.get("organization_name", "")
-
-            # Ask user for pass generation
-            reply = QMessageBox.question(
+            QMessageBox.information(
                 self,
-                "Generate Pass",
-                f"Visitor registered successfully.\nVisit ID: {visit_id}\n\nGenerate visitor pass PDF?",
-                QMessageBox.Yes | QMessageBox.No
+                "Success",
+                f"Visitor registered successfully.\nVisit ID: {visit_id}"
             )
-
-            if reply == QMessageBox.Yes:
-                try:
-                    pdf_path = self.generate_visitor_pass_pdf(visit_id, check_in_time, organization)
-                    QMessageBox.information(
-                        self,
-                        "Pass Generated",
-                        f"Visitor pass PDF generated:\n{pdf_path}\n\nOpen or print it using system tools."
-                    )
-                except Exception:
-                    logging.error(traceback.format_exc())
-                    QMessageBox.critical(
-                        self,
-                        "Pass Generation Failed",
-                        "PDF generation failed, but visitor registration succeeded."
-                    )
 
             self.visitor_registered.emit()
             self.show_selection()

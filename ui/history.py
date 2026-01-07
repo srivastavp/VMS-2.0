@@ -9,6 +9,7 @@ import traceback
 
 from database import DatabaseManager
 from utils.styles import BUTTON_STYLES, PRIMARY_COLOR
+from utils.pdpa import mask_nric
 
 
 class HistoryWidget(QWidget):
@@ -104,7 +105,7 @@ class HistoryWidget(QWidget):
                 row = self.table.rowCount()
                 self.table.insertRow(row)
 
-                self.table.setItem(row, 0, QTableWidgetItem(record.get('nric', '') or ''))
+                self.table.setItem(row, 0, QTableWidgetItem(mask_nric(record.get('nric', '') or '')))
                 self.table.setItem(row, 1, QTableWidgetItem(record.get('hp_no', '') or ''))
                 self.table.setItem(row, 2, QTableWidgetItem(record.get('first_name', '') or ''))
                 self.table.setItem(row, 3, QTableWidgetItem(record.get('last_name', '') or ''))
