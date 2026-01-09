@@ -20,6 +20,7 @@ from PIL import Image
 from database import DatabaseManager
 from utils.styles import PRIMARY_COLOR
 from utils.pdpa import mask_nric
+from utils.path_helper import get_config_file_path
 
 
 # ------------------------------------------------------
@@ -27,8 +28,7 @@ from utils.pdpa import mask_nric
 # ------------------------------------------------------
 def load_config() -> dict:
     """Load configuration from data/config.json"""
-    app_base = Path(__file__).resolve().parents[1]
-    config_path = app_base / "data" / "config.json"
+    config_path = get_config_file_path()
     if config_path.exists():
         try:
             return json.loads(config_path.read_text(encoding="utf-8"))

@@ -19,6 +19,7 @@ import logging
 from utils.license import LicenseManager
 from database import DatabaseManager
 from utils.styles import MAIN_STYLE
+from utils.path_helper import get_config_file_path, resource_path
 
 # Helper to create message boxes without help button
 def _msg_box(icon, title, text, buttons, parent):
@@ -36,10 +37,7 @@ from ui.all_records import AllRecordsWidget
 # -------------------------
 # Paths & Config
 # -------------------------
-APP_BASE = Path(__file__).resolve().parents[1]
-DATA_DIR = APP_BASE / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-CONFIG_PATH = DATA_DIR / "config.json"
+CONFIG_PATH = get_config_file_path()
 
 
 def load_config() -> dict:
@@ -965,7 +963,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(MAIN_STYLE)
 
         # Icon
-        ico = QIcon(str(APP_BASE / "assets" / "logo.ico"))
+        ico = QIcon(resource_path("assets/logo.ico"))
         if not ico.isNull():
             self.setWindowIcon(ico)
 
@@ -1033,7 +1031,7 @@ class MainWindow(QMainWindow):
             """
         )
 
-        user_icon = QIcon(str(APP_BASE / "assets" / "user.ico"))
+        user_icon = QIcon(resource_path("assets/user.ico"))
         if not user_icon.isNull():
             self.user_button.setIcon(user_icon)
 

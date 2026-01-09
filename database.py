@@ -10,6 +10,8 @@ from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Tuple, Any, Union
 from threading import Lock
 
+from utils.path_helper import get_db_file_path
+
 
 # -------------------------
 # DEVICE IDENTIFIER
@@ -73,13 +75,8 @@ class DatabaseManager:
     """
 
     def __init__(self, db_path: str = None, cache_ttl: int = 5):
-        # place DB inside project/data by default (portable)
-        base_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent
-        data_dir = base_dir / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
-
         if db_path is None:
-            db_path = data_dir / "visitor_management.db"
+            db_path = get_db_file_path()
 
         self.db_path = str(db_path)
         self._conn_lock = Lock()

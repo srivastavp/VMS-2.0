@@ -1,59 +1,68 @@
 #!/usr/bin/env python3
 """
-Correct build script for M-Neo VMS
-Produces a folder-based PyInstaller build compatible with installer.iss
+Build script for M-Neo VMS
+Produces a folder-based PyInstaller build for Inno Setup
 """
-
-import os
 import subprocess
 import shutil
+import sys
 from pathlib import Path
 
 APP_NAME = "M-Neo VMS"
-DIST_DIR = Path("dist") / APP_NAME
+PROJECT_ROOT = Path(__file__).resolve().parent
+DIST_DIR = PROJECT_ROOT / "dist"
+BUILD_DIR = PROJECT_ROOT / "build"
 
 def clean_previous_build():
-    print("Cleaning previous build...")
-    shutil.rmtree("build", ignore_errors=True)
-    shutil.rmtree("dist", ignore_errors=True)
-    shutil.rmtree("__pycache__", ignore_errors=True)
+    print("🧹 Cleaning previous build...")
+    shutil.rmtree(BUILD_DIR, ignore_errors=True)
+    shutil.rmtree(DIST_DIR, ignore_errors=True)
+    shutil.rmtree(PROJECT_ROOT / "__pycache__", ignore_errors=True)
 
 def build_executable():
-    print("Building application with PyInstaller...")
+    print("⚙️ Building application with PyInstaller...")
 
-    # Folder-based build (NO --onefile)
     cmd = [
-        "pyinstaller",
+        sys.executable, "-m", "PyInstaller",
         "--noconfirm",
         "--windowed",
-        f"--name={APP_NAME}",
-        "--add-data=assets;assets",
-        "--add-data=data;data",
-        "--add-data=ui;ui",
-        "--add-data=utils;utils",
-        "--add-data=passes;passes",
-        "--hidden-import=PyQt5.sip",
-        "--hidden-import=pandas",
-        "--hidden-import=matplotlib",
-        "--hidden-import=openpyxl",
-        "--hidden-import=psutil",
-        "--hidden-import=cryptography",
-        "main.py"
+        "--name", APP_NAME,
+
+        "--distpath", str(DIST_DIR),
+        "--workpath", str(BUILD_DIR),
+        "--specpath", str(PROJECT_ROOT),
+
+        # Static assets only
+        "--add-data", "assets;assets",
+
+        # Hidden imports
+        "--hidden-import", "PyQt5.sip",
+        "--hidden-import", "pandas",
+        "--hidden-import", "matplotlib",
+        "--hidden-import", "openpyxl",
+        "--hidden-import", "psutil",
+        "--hidden-import", "cryptography",
+        "--hidden-import", "qrcode",
+        "--hidden-import", "reportlab",
+        "--hidden-import", "PIL",
+
+        "main.py",
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, text=True, cwd=str(PROJECT_ROOT))
 
     if result.returncode != 0:
-        print("❌ Build failed:")
-        print(result.stderr)
-        return False
+        raise RuntimeError(f"❌ PyInstaller build failed (exit code {result.returncode})")
 
     print("✅ Build succeeded!")
-    print(f"Output created at: dist/{APP_NAME}")
-    return True
+    print(f"📦 Output available at: {DIST_DIR / APP_NAME}")
+
+def verify_output():
+    exe = DIST_DIR / APP_NAME / f"{APP_NAME}.exe"
+    if not exe.exists():
+        raise RuntimeError("❌ Build verification failed: exe not found")
 
 if __name__ == "__main__":
     clean_previous_build()
-    ok = build_executable()
-    if not ok:
-        exit(1)
+    build_executable()
+    verify_output()
