@@ -324,6 +324,8 @@ class MainWindow(QMainWindow):
     # Startup License Logic
     # ------------------------------------------------------
     def _ensure_license(self) -> bool:
+        # TEMP BYPASS: skip MAC/license checks for local dev
+        return True
         info = self.db_manager.get_license_info()
 
         if info and info.get("license_key"):

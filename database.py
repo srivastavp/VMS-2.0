@@ -469,9 +469,12 @@ class DatabaseManager:
         """
         try:
             today = datetime.now().strftime('%Y%m%d')
-            # Use today's count but avoid expensive full scans; indexed by check_in_time
+            # Compare against the same local "today" used for the prefix instead of
+            # SQLite's DATE('now'), which is UTC-based and can disagree with the
+            # local date (e.g. just after local midnight), causing duplicate numbers.
             row = self._fetchone(
-                "SELECT COUNT(*) as c FROM visitors WHERE DATE(check_in_time)=DATE('now')"
+                "SELECT COUNT(*) as c FROM visitors WHERE strftime('%Y%m%d', check_in_time) = ?",
+                (today,)
             )
             count = row["c"] if row else 0
             return f"VMS-{today}-{count + 1:04d}"
