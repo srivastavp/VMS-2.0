@@ -8,7 +8,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QIcon
 from pathlib import Path
-import json
 from datetime import datetime
 import sys
 import logging
@@ -16,12 +15,14 @@ import logging
 from utils.license import LicenseManager
 from database import DatabaseManager
 from utils.styles import MAIN_STYLE
+from utils.app_config import load_config, save_config
 
 from ui.registration import RegistrationWidget
 from ui.dashboard import DashboardWidget
 from ui.active_visitors import ActiveVisitorsWidget
 from ui.history import HistoryWidget
 from ui.all_records import AllRecordsWidget
+from ui.printer_settings import PrinterSettingsDialog
 
 
 # -------------------------
@@ -30,23 +31,6 @@ from ui.all_records import AllRecordsWidget
 APP_BASE = Path(__file__).resolve().parents[1]
 DATA_DIR = APP_BASE / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-CONFIG_PATH = DATA_DIR / "config.json"
-
-
-def load_config() -> dict:
-    if CONFIG_PATH.exists():
-        try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except:
-            return {}
-    return {}
-
-
-def save_config(data: dict):
-    try:
-        CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    except:
-        logging.exception("Failed to save config")
 
 
 # -------------------------
@@ -381,6 +365,10 @@ class MainWindow(QMainWindow):
         about.triggered.connect(self._about)
         toolbar.addAction(about)
 
+        printer_settings = QAction("Printer Settings", self)
+        printer_settings.triggered.connect(self._open_printer_settings)
+        toolbar.addAction(printer_settings)
+
         logout = QAction("Log Out", self)
         logout.triggered.connect(self._logout)
         toolbar.addAction(logout)
@@ -431,6 +419,12 @@ Address: {cfg.get('address', '—')}<br>
 Country: {cfg.get('country', '—')}<br>
 """
         )
+
+    # ------------------------------------------------------
+    # PRINTER SETTINGS
+    # ------------------------------------------------------
+    def _open_printer_settings(self):
+        PrinterSettingsDialog(self).exec_()
 
     # ------------------------------------------------------
     # LOGOUT (sets is_active=0)

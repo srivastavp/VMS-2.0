@@ -7,11 +7,14 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
 from PyQt5.QtGui import QFont, QIcon
+from datetime import datetime
 import logging
 import traceback
 
 from database import DatabaseManager
 from utils.styles import PRIMARY_COLOR
+from utils.pass_renderer import build_pass_data, generate_pdf
+from utils.printer_manager import PrintWorker
 
 
 class ActiveVisitorsWidget(QWidget):
@@ -113,7 +116,7 @@ class ActiveVisitorsWidget(QWidget):
             12: 150,  # Visit ID
             13: 150,  # ID Number
             14: 200,  # Check-in Time
-            15: 200   # ✅ Action - expanded so button isn't cut
+            15: 280   # ✅ Action - expanded so buttons aren't cut
         }
 
         for col in range(self.table.columnCount()):
@@ -199,13 +202,98 @@ class ActiveVisitorsWidget(QWidget):
             lambda checked, v_id=visitor_id: self.checkout_visitor(v_id)
         )
 
+        # ---------- PRINT PASS BUTTON (reprint) ----------
+        print_btn = QPushButton("Print Pass")
+        print_btn.setCursor(Qt.PointingHandCursor)
+        print_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: #5a5560;
+                color: white;
+                border-radius: 6px;
+                padding: 10px 18px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{ background: #6b6570; }}
+            QPushButton:pressed {{ background: #4a4550; }}
+        """)
+        print_btn.clicked.connect(
+            lambda checked, v=visitor: self.print_pass(v)
+        )
+
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addWidget(checkout_btn)
+        layout.addWidget(print_btn)
         layout.setAlignment(Qt.AlignCenter)
 
         self.table.setCellWidget(row, 15, container)
+
+    # ===================================================================
+    # PRINT PASS (reprint for an already-registered active visitor)
+    # ===================================================================
+    def print_pass(self, visitor: dict):
+        try:
+            check_in_raw = visitor.get("check_in_time")
+            try:
+                check_in_time = datetime.strptime(check_in_raw, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                check_in_time = datetime.now()
+
+            pass_data = build_pass_data(
+                visit_id=visitor.get("pass_number", "") or "",
+                check_in_time=check_in_time,
+                first_name=visitor.get("first_name", ""),
+                last_name=visitor.get("last_name", ""),
+                hp_no=visitor.get("hp_no", ""),
+                category=visitor.get("category", ""),
+                destination=visitor.get("destination", ""),
+                company=visitor.get("company", ""),
+                vehicle_number=visitor.get("vehicle_number", ""),
+                person_visited=visitor.get("person_visited", ""),
+                purpose=visitor.get("purpose", ""),
+            )
+        except Exception:
+            logging.error(traceback.format_exc())
+            QMessageBox.critical(self, "Error", "Could not prepare visitor pass for printing.")
+            return
+
+        self.status_label.setText(f"Printing visitor pass (Visit ID: {pass_data['visit_id']})...")
+
+        self._print_worker = PrintWorker(pass_data, parent=self)
+        self._print_worker.finished_result.connect(
+            lambda success, message: self._on_print_finished(success, message, pass_data)
+        )
+        self._print_worker.start()
+
+    def _on_print_finished(self, success: bool, message: str, pass_data: dict):
+        if success:
+            self.status_label.setText(f"Visitor pass printed (Visit ID: {pass_data['visit_id']}).")
+            return
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Print Failed")
+        box.setText(f"Visitor pass could not be printed.\n\nReason:\n{message}")
+        retry_btn = box.addButton("Retry Print", QMessageBox.AcceptRole)
+        save_pdf_btn = box.addButton("Save PDF", QMessageBox.ActionRole)
+        box.addButton("Close", QMessageBox.RejectRole)
+        box.exec_()
+
+        clicked = box.clickedButton()
+        if clicked == retry_btn:
+            self._print_worker = PrintWorker(pass_data, parent=self)
+            self._print_worker.finished_result.connect(
+                lambda success2, message2: self._on_print_finished(success2, message2, pass_data)
+            )
+            self._print_worker.start()
+        elif clicked == save_pdf_btn:
+            try:
+                pdf_path = generate_pdf(pass_data)
+                QMessageBox.information(self, "PDF Saved", f"Visitor pass saved to:\n{pdf_path}")
+            except Exception:
+                logging.error(traceback.format_exc())
+                QMessageBox.critical(self, "Error", "Visitor pass PDF could not be generated.")
 
     # ===================================================================
     # CHECKOUT

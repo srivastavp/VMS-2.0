@@ -7,43 +7,11 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 from datetime import datetime
 import logging, re, traceback
-import io
-import json
-import os
-from pathlib import Path
-
-import qrcode
-from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
-from PIL import Image
 
 from database import DatabaseManager
 from utils.styles import PRIMARY_COLOR
-
-
-# ------------------------------------------------------
-# Config Helper
-# ------------------------------------------------------
-def load_config() -> dict:
-    """Load configuration from data/config.json"""
-    app_base = Path(__file__).resolve().parents[1]
-    config_path = app_base / "data" / "config.json"
-    if config_path.exists():
-        try:
-            return json.loads(config_path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
-
-
-def get_desktop_dir() -> Path:
-    """Best-effort resolution of the current user's Desktop directory."""
-    desktop = Path.home() / "Desktop"
-    try:
-        desktop.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    return desktop
+from utils.pass_renderer import build_pass_data, generate_pdf
+from utils.printer_manager import PrinterManager, PrintWorker
 
 
 # ------------------------------------------------------
@@ -367,115 +335,80 @@ class RegistrationWidget(QWidget):
         self.hp_error.hide()
 
     # --------------------------------------------------
-    def generate_visitor_pass_pdf(self, visit_id: str, check_in_time: datetime) -> str:
-        """
-        Generate an ID-card-style PDF pass with a QR code for a visitor and
-        save it to the current user's Desktop. Card size matches the
-        standard CR80 ID card (3.375 x 2.125 in), suitable for small
-        sticker/badge printers.
-        """
-        first_name = self.fn.text().strip()
-        last_name = self.ln.text().strip()
-        full_name = f"{first_name} {last_name}".strip()
-        hp_no = self.hp.text().strip()
-        category = self.category.currentText()
-        destination = self.dest.text().strip()
-
-        cfg = load_config()
-        org_name = cfg.get("organization_name", "")
-        location = cfg.get("location_name", "")
-
-        # QR payload (JSON)
-        payload_dict = {
-            "type": "VMS_PASS",
-            "visit_id": visit_id,
-            "hp_no": hp_no,
-            "name": full_name,
-            "category": category,
-            "destination": destination,
-            "in_time": check_in_time.isoformat(),
-            "organization": org_name,
-            "location": location,
-            "application": "M-Neo VMS"
-        }
-
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_M,
-            box_size=6,
-            border=3,
+    def _build_current_pass_data(self, visit_id: str, check_in_time: datetime) -> dict:
+        """Collect the current form fields into the canonical pass-data dict."""
+        return build_pass_data(
+            visit_id=visit_id,
+            check_in_time=check_in_time,
+            first_name=self.fn.text().strip(),
+            last_name=self.ln.text().strip(),
+            hp_no=self.hp.text().strip(),
+            category=self.category.currentText(),
+            destination=self.dest.text().strip(),
+            company=self.company.text().strip(),
+            vehicle_number=self.vehicle.text().strip(),
+            person_visited=self.person.text().strip(),
+            purpose=self.purpose.text().strip(),
         )
-        qr.add_data(json.dumps(payload_dict))
-        qr.make(fit=True)
 
-        qr_img = qr.make_image(fill_color="black", back_color="white")
-        qr_buffer = io.BytesIO()
-        qr_img.save(qr_buffer, format="PNG")
-        qr_buffer.seek(0)
+    def _start_print(self, pass_data: dict):
+        """
+        Kick off printing on a background thread so the UI/registration
+        flow is never blocked by the Windows print spooler or an
+        unavailable/offline printer. Registration has already been
+        committed to the database by this point.
+        """
+        self.statusBar_message(f"Visitor registered. Visit ID: {pass_data['visit_id']} — printing pass...")
 
-        desktop_dir = get_desktop_dir()
-        pdf_path = os.path.join(str(desktop_dir), f"VisitorPass_{visit_id}.pdf")
+        self._print_worker = PrintWorker(pass_data, parent=self)
+        self._print_worker.finished_result.connect(
+            lambda success, message: self._on_print_finished(success, message, pass_data)
+        )
+        self._print_worker.start()
 
-        # CR80 ID card size in points (3.375 x 2.125 in)
-        card_width = 3.375 * 72   # 243 pts
-        card_height = 2.125 * 72  # 153 pts
+    def statusBar_message(self, text: str):
+        """Best-effort status message; falls back to logging if no status bar is reachable."""
+        try:
+            window = self.window()
+            if hasattr(window, "statusBar"):
+                window.statusBar().showMessage(text, 5000)
+                return
+        except Exception:
+            pass
+        logging.info(text)
 
-        c = canvas.Canvas(pdf_path, pagesize=(card_width, card_height))
+    def _on_print_finished(self, success: bool, message: str, pass_data: dict):
+        if success:
+            self.statusBar_message(f"Visitor pass printed successfully (Visit ID: {pass_data['visit_id']}).")
+            return
 
-        # Border
-        primary_rgb = tuple(int(PRIMARY_COLOR[i:i + 2], 16) for i in (1, 3, 5))
-        primary_color_norm = tuple(x / 255.0 for x in primary_rgb)
-        c.setStrokeColor(primary_color_norm)
-        c.setLineWidth(1.5)
-        c.rect(2, 2, card_width - 4, card_height - 4, stroke=1, fill=0)
+        # Printing failed — the visitor registration itself already succeeded
+        # and is not affected. Offer a retry or a PDF fallback.
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Visitor Pass Could Not Be Printed")
+        box.setText(
+            f"Visitor registered successfully.\n\n"
+            f"Visitor pass could not be printed.\n\nReason:\n{message}"
+        )
+        retry_btn = box.addButton("Retry Print", QMessageBox.AcceptRole)
+        save_pdf_btn = box.addButton("Save PDF", QMessageBox.ActionRole)
+        box.addButton("Close", QMessageBox.RejectRole)
+        box.exec_()
 
-        # -------- QR at top-right --------
-        qr_size = 48
-        margin = 6
-        qr_x = card_width - margin - qr_size
-        qr_y = card_height - margin - qr_size
-        qr_img_pil = Image.open(qr_buffer)
-        c.drawImage(ImageReader(qr_img_pil), qr_x, qr_y, width=qr_size, height=qr_size)
+        clicked = box.clickedButton()
+        if clicked == retry_btn:
+            self._start_print(pass_data)
+        elif clicked == save_pdf_btn:
+            self._save_pass_pdf(pass_data)
 
-        # -------- Header (org name) --------
-        c.setFont("Helvetica-Bold", 7)
-        c.setFillColorRGB(*primary_color_norm)
-        c.drawString(margin, card_height - margin - 7, (org_name or "M-Neo VMS")[:26])
-
-        # -------- Fields (left column, below header, avoiding QR) --------
-        fields = [
-            ("Name", full_name or "-"),
-            ("HP No.", hp_no or "-"),
-            ("Category", category or "-"),
-            ("Destination", destination or "-"),
-            ("Visit ID", visit_id),
-            ("In-Time", check_in_time.strftime("%Y-%m-%d %H:%M")),
-        ]
-
-        c.setFont("Helvetica", 6)
-        c.setFillColorRGB(0, 0, 0)
-        text_width_limit = card_width - margin - 4
-        y = card_height - margin - 18
-        line_gap = 12
-        for label, value in fields:
-            text = f"{label}: {value}"
-            # Simple truncation so text doesn't overflow the card
-            while c.stringWidth(text, "Helvetica", 6) > text_width_limit and len(value) > 3:
-                value = value[:-1]
-                text = f"{label}: {value}..."
-            c.drawString(margin, y, text)
-            y -= line_gap
-            if y < margin:
-                break
-
-        # -------- Footer (location / M-Neo VMS) --------
-        c.setFont("Helvetica", 5)
-        c.setFillColorRGB(0.4, 0.4, 0.4)
-        footer_text = " | ".join(t for t in [location, "M-Neo VMS"] if t)
-        c.drawString(margin, margin, footer_text[:40])
-
-        c.save()
-        return pdf_path
+    def _save_pass_pdf(self, pass_data: dict):
+        try:
+            pdf_path = generate_pdf(pass_data)
+            QMessageBox.information(self, "PDF Saved", f"Visitor pass saved to:\n{pdf_path}")
+        except Exception:
+            logging.error(f"Failed to generate visitor pass PDF: {traceback.format_exc()}")
+            QMessageBox.critical(self, "Error", "Visitor pass PDF could not be generated.")
 
     # --------------------------------------------------
     def register_visitor(self):
@@ -524,19 +457,12 @@ class RegistrationWidget(QWidget):
                                     "NRIC must be S1234567D\nHP must be 8 digits.")
                 return
 
-            pass_msg = ""
-            try:
-                pdf_path = self.generate_visitor_pass_pdf(visit_id, check_in_time)
-                pass_msg = f"\n\nVisitor pass saved to:\n{pdf_path}"
-            except Exception:
-                logging.error(f"Failed to generate visitor pass PDF: {traceback.format_exc()}")
-                pass_msg = "\n\n(Visitor pass PDF could not be generated.)"
+            # Registration is already committed at this point. Printing is
+            # attempted afterwards and independently — a print failure must
+            # never undo or block the registration itself.
+            pass_data = self._build_current_pass_data(visit_id, check_in_time)
+            self._start_print(pass_data)
 
-            QMessageBox.information(
-                self,
-                "Success",
-                f"Visitor registered successfully.\nVisit ID: {visit_id}{pass_msg}"
-            )
             self.visitor_registered.emit()
             self.show_selection()
 
