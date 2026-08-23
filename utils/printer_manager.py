@@ -18,7 +18,7 @@ actual print call is executed off the UI thread via PrintWorker (QThread).
 """
 import logging
 
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 from PyQt5.QtPrintSupport import QPrinter, QPrinterInfo
 
 from utils import app_config
@@ -194,10 +194,19 @@ def _qsizef(w, h):
     return QSizeF(w, h)
 
 
-class PrintWorker(QThread):
+class PrintWorker(QObject):
     """
-    Runs PrinterManager.print_visitor_pass off the UI thread so the app
-    never appears to freeze while a print job is being spooled.
+    Submits a visitor-pass print job without blocking the caller's current
+    call stack.
+
+    NOTE: Windows native printing (GDI/COM spooler calls made through
+    QPrinter/QPainter) is NOT safe to run on a background QThread — Qt's
+    Windows print backend expects to run on the main/GUI thread, and doing
+    otherwise reliably hangs or crashes the application. Instead, the
+    actual print call is deferred to the next iteration of the main
+    event loop via QTimer.singleShot(0, ...), so control returns to the
+    caller immediately (keeping dialogs/status updates responsive) while
+    the print job itself still executes safely on the main thread.
     """
     finished_result = pyqtSignal(bool, str)
 
@@ -206,6 +215,9 @@ class PrintWorker(QThread):
         self.data = data
         self.printer_name = printer_name
 
-    def run(self):
+    def start(self):
+        QTimer.singleShot(0, self._run)
+
+    def _run(self):
         success, message = PrinterManager.print_visitor_pass(self.data, self.printer_name)
         self.finished_result.emit(success, message)
