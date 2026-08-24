@@ -586,20 +586,41 @@ class DatabaseManager:
             return []
 
     def get_daily_checkins_current_month(self) -> List[Tuple[date, int]]:
+        """
+        Return one (date, count) pair per calendar day from the 1st of the
+        current LOCAL month through today (inclusive), including days with
+        zero check-ins, so the dashboard chart shows a continuous daily
+        trend rather than only the days that happen to have data.
+
+        Uses Python's local date.today() for the month range (matching
+        get_todays_checkin_count() and the rest of the app) instead of
+        SQLite's 'now', which is UTC and could otherwise disagree with the
+        app's local-time notion of "today"/"this month" right around
+        local midnight.
+        """
+        today = date.today()
+        month_start = today.replace(day=1)
         try:
             rows = self._fetchall(
                 '''
                 SELECT DATE(check_in_time) as d, COUNT(*) as c
                 FROM visitors
-                WHERE strftime('%Y-%m', check_in_time) = strftime('%Y-%m', 'now')
+                WHERE DATE(check_in_time) >= ? AND DATE(check_in_time) <= ?
                 GROUP BY DATE(check_in_time)
                 ORDER BY DATE(check_in_time)
-                '''
+                ''',
+                (month_start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d'))
             )
-            return [
-                (datetime.strptime(r["d"], '%Y-%m-%d').date(), r["c"])
+            counts_by_day = {
+                datetime.strptime(r["d"], '%Y-%m-%d').date(): r["c"]
                 for r in rows
-            ]
+            }
+            result = []
+            day = month_start
+            while day <= today:
+                result.append((day, counts_by_day.get(day, 0)))
+                day += timedelta(days=1)
+            return result
         except sqlite3.Error:
             logging.exception("get_daily_checkins_current_month failed")
             return []

@@ -7,7 +7,8 @@ from PyQt5.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates
-from datetime import datetime
+import logging
+from datetime import datetime, date
 from typing import List, Tuple, Optional
 
 # Keep your app constants in utils.styles (as before). Example placeholders:
@@ -22,6 +23,50 @@ QFrame {
 }
 """
 PRIMARY_COLOR = "#6A1B9A"  # example
+
+
+def parse_chart_date(d):
+    """
+    Normalize a single X-axis value for the "Daily Check-ins This Month"
+    chart into a datetime.datetime that Matplotlib's date locator/
+    formatter can plot correctly.
+
+    Accepts datetime.datetime, datetime.date (what
+    DatabaseManager.get_daily_checkins_current_month() actually returns),
+    or a handful of common string date formats.
+
+    IMPORTANT: `isinstance(d, datetime)` is False for a plain
+    `datetime.date` (date is the base class, datetime is the subclass —
+    not the other way around), so a `date` value used to fall straight
+    through every string-parsing branch (raising/catching TypeError each
+    time, since it isn't a str) and hit a final "fallback to today()"
+    called once per point. That collapsed the whole axis onto
+    near-identical microsecond-apart timestamps, which is why the X-axis
+    showed raw numeric offsets like "26.811116" instead of calendar
+    dates: with an almost-zero-width date range, Matplotlib's date
+    locator/formatter can't produce meaningful day ticks and falls back
+    to plain numeric tick labels.
+
+    Returns None (instead of silently substituting today's date) when a
+    value truly can't be recognized, so the caller can drop just that
+    point rather than corrupting the entire chart's date range.
+    """
+    if isinstance(d, datetime):
+        return d
+    if isinstance(d, date):
+        return datetime.combine(d, datetime.min.time())
+    if isinstance(d, str):
+        for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(d, fmt)
+            except Exception:
+                continue
+        try:
+            return datetime.fromisoformat(d)
+        except Exception:
+            pass
+    logging.warning("Dashboard chart: could not parse date value %r (%s); skipping point", d, type(d))
+    return None
 
 
 class ClickableCard(QFrame):
@@ -193,28 +238,24 @@ class DashboardWidget(QWidget):
             self.canvas.draw()
             return
 
-        # Expecting daily_data as list of tuples (date_string or date, count)
-        dates_raw = [d for d, _ in daily_data]
-        counts = [c for _, c in daily_data]
+        # Expecting daily_data as list of tuples (date/datetime/date-string, count)
+        # Normalize each date value to a datetime.datetime; drop any point
+        # whose date value can't be recognized rather than silently
+        # substituting today's date, which would corrupt the whole axis
+        # range (see parse_chart_date's docstring for the bug this fixes).
+        parsed = [(parse_chart_date(d), c) for d, c in daily_data]
+        parsed = [(d, c) for d, c in parsed if d is not None]
 
-        # Normalize date values to datetime objects
-        def parse_date(d):
-            if isinstance(d, datetime):
-                return d
-            # try several common formats; adapt to what DB returns
-            for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d"):
-                try:
-                    return datetime.strptime(d, fmt)
-                except Exception:
-                    continue
-            # fallback: try parsing ISO
-            try:
-                return datetime.fromisoformat(d)
-            except Exception:
-                # final fallback to today — keeps plot stable
-                return datetime.today()
+        if not parsed:
+            ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes, fontsize=12, color='gray')
+            ax.set_title('Daily Check-ins This Month')
+            ax.set_xticks([])
+            self.figure.tight_layout()
+            self.canvas.draw()
+            return
 
-        dates = [parse_date(d) for d in dates_raw]
+        dates = [d for d, _ in parsed]
+        counts = [c for _, c in parsed]
 
         ax.plot(dates, counts, marker='o', linewidth=2, markersize=6)
         ax.fill_between(dates, counts, alpha=0.3)
@@ -224,9 +265,17 @@ class DashboardWidget(QWidget):
         ax.set_ylabel('Number of Check-ins', fontsize=10)
         ax.grid(True, alpha=0.3)
 
-        # Better date formatting for x-axis
-        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-        ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(mdates.AutoDateLocator()))
+        # Day-based (not sub-daily) date formatting for the X-axis. This is
+        # a daily chart, so ticks should always land on whole calendar
+        # days ("Aug 20", "Aug 21", ...) -- AutoDateLocator/
+        # ConciseDateFormatter can otherwise introduce sub-daily ticks
+        # (e.g. "12:00") for short date ranges, which doesn't make sense
+        # for a one-point-per-day series. Thin out the label interval as
+        # the month fills up so labels don't overlap.
+        num_days = len(dates)
+        interval = max(1, -(-num_days // 10))  # ~10 labels max, rounded up
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
         self.figure.autofmt_xdate(rotation=45)
 
         self.figure.tight_layout()
