@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QComboBox,
     QPushButton, QLabel, QMessageBox, QDoubleSpinBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 
 from datetime import datetime
 
@@ -75,6 +75,18 @@ class PrinterSettingsDialog(QDialog):
         test_btn = QPushButton("Test Print")
         test_btn.clicked.connect(self._test_print)
         btn_row.addWidget(test_btn)
+
+        # TEMPORARY diagnostic tool for verifying the print coordinate
+        # system (page size/DPI/font sizing) directly on physical
+        # hardware. Safe to remove once the Brother QL-800 output has
+        # been confirmed correct.
+        diag_btn = QPushButton("Diagnostic Print (temp)")
+        diag_btn.setToolTip(
+            "Prints a millimetre grid, coordinate markers, and printer/DPI "
+            "info to verify the print coordinate system on real hardware."
+        )
+        diag_btn.clicked.connect(self._diagnostic_print)
+        btn_row.addWidget(diag_btn)
         btn_row.addStretch()
 
         save_btn = QPushButton("Save")
@@ -157,3 +169,26 @@ class PrinterSettingsDialog(QDialog):
         else:
             self.status_label.setText(f"❌ {message}")
             QMessageBox.warning(self, "Test Print Failed", message)
+
+    def _diagnostic_print(self):
+        """TEMPORARY: see PrinterManager.print_diagnostic for details."""
+        name = self.printer_combo.currentText().strip()
+        if not name:
+            QMessageBox.warning(self, "Missing", "Please select a printer first.")
+            return
+
+        app_config.set_config_value(app_config.KEY_LABEL_WIDTH_MM, self.width_spin.value())
+        app_config.set_config_value(app_config.KEY_LABEL_HEIGHT_MM, self.height_spin.value())
+
+        self.status_label.setText("Printing diagnostic pattern...")
+        # Windows native printing must run on the main thread (see
+        # PrintWorker), so defer via QTimer instead of a QThread.
+        QTimer.singleShot(0, lambda: self._run_diagnostic_print(name))
+
+    def _run_diagnostic_print(self, name: str):
+        success, message = PrinterManager.print_diagnostic(name)
+        if success:
+            self.status_label.setText(f"✅ {message}")
+        else:
+            self.status_label.setText(f"❌ {message}")
+            QMessageBox.warning(self, "Diagnostic Print Failed", message)

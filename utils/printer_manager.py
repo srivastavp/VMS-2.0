@@ -171,6 +171,86 @@ class PrinterManager:
             return False, f"An unexpected printer error occurred: {e}"
 
     @staticmethod
+    def _print_diagnostic_data(printer_name: str) -> None:
+        """
+        TEMPORARY DIAGNOSTIC TOOL — mirrors _print_data's printer/page
+        setup exactly, but renders draw_diagnostic_pattern instead of the
+        visitor pass, so the printer/DPI/page-size values used for real
+        printing can be confirmed against a ruler on the physical output.
+        """
+        from utils.pass_renderer import draw_diagnostic_pattern
+
+        width_mm, height_mm = app_config.get_label_size_mm()
+
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPrinterName(printer_name)
+        printer.setFullPage(True)
+        printer.setPageMargins(0, 0, 0, 0, QPrinter.Millimeter)
+        try:
+            from PyQt5.QtGui import QPageSize
+            from PyQt5.QtCore import QSizeF
+            printer.setPageSize(QPageSize(QSizeF(width_mm, height_mm), QPageSize.Millimeter))
+        except Exception:
+            printer.setPaperSize(_qsizef(width_mm, height_mm), QPrinter.Millimeter)
+
+        if not printer.isValid():
+            raise PrinterError(f"Windows could not open the printer '{printer_name}'.")
+
+        if printer.outputFormat() != QPrinter.NativeFormat:
+            import tempfile
+            import os as _os
+            suffix = ".pdf" if printer.outputFormat() == QPrinter.PdfFormat else ".out"
+            fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+            _os.close(fd)
+            printer.setOutputFileName(tmp_path)
+            logger.info("Printer '%s' is a print-to-file driver; redirecting diagnostic output to %s", printer_name, tmp_path)
+
+        from PyQt5.QtGui import QPainter
+        painter = QPainter()
+        if not painter.begin(printer):
+            raise PrinterError(f"Failed to start a print job on '{printer_name}'.")
+        try:
+            rect = printer.pageRect(QPrinter.DevicePixel) if hasattr(QPrinter, "DevicePixel") else printer.pageRect()
+            width_px = rect.width()
+            height_px = rect.height()
+            info = {
+                "printer_name": printer_name,
+                "width_mm": width_mm,
+                "height_mm": height_mm,
+                "width_px": width_px,
+                "height_px": height_px,
+                "resolution_dpi": printer.resolution(),
+                "physical_dpi_x": printer.physicalDpiX(),
+                "physical_dpi_y": printer.physicalDpiY(),
+                "logical_dpi_x": printer.logicalDpiX(),
+                "logical_dpi_y": printer.logicalDpiY(),
+            }
+            logger.info("Diagnostic print requested printer=%s page_px=%sx%s dpi=%s", printer_name, width_px, height_px, info["resolution_dpi"])
+            draw_diagnostic_pattern(painter, width_px, height_px, width_mm, height_mm, info)
+        finally:
+            painter.end()
+
+    @staticmethod
+    def print_diagnostic(printer_name: str = None) -> tuple:
+        """
+        TEMPORARY DIAGNOSTIC TOOL — prints a millimetre grid, coordinate
+        markers, size-reference text, and printer/DPI metadata to confirm
+        the print coordinate system on real hardware (e.g. Brother
+        QL-800). Does not touch the database. Safe to remove (along with
+        draw_diagnostic_pattern) once the print pipeline is verified.
+        """
+        try:
+            resolved_name = PrinterManager._resolve_printer(printer_name)
+            PrinterManager._print_diagnostic_data(resolved_name)
+            return True, f"Diagnostic pattern printed on '{resolved_name}'."
+        except PrinterError as e:
+            logger.warning("Diagnostic print failed: %s", e)
+            return False, str(e)
+        except Exception as e:
+            logger.exception("Unexpected error during diagnostic print")
+            return False, f"An unexpected printer error occurred: {e}"
+
+    @staticmethod
     def test_print(printer_name: str = None) -> tuple:
         """
         Print a sample visitor-pass-like layout to confirm the print

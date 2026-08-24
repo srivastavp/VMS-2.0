@@ -245,7 +245,21 @@ def draw_pass(painter, data: dict, width_px: float, height_px: float) -> None:
     header_height = height_px * 0.12 if header_text else 0
     if header_text:
         header_font_size = max(6, int(height_px * 0.09))
-        header_font = QFont("Segoe UI", header_font_size, QFont.Bold)
+        # NOTE: header_font_size/field_font_size below are fractions of
+        # height_px, which is in *device pixels* (from
+        # printer.pageRect(QPrinter.DevicePixel)) at the printer's actual
+        # resolution — not typographic points. QFont's constructor size
+        # argument and setPointSize() are both interpreted as points
+        # (1/72in) scaled by the paint device's DPI, which would make the
+        # rendered text size scale with printer DPI instead of with the
+        # physical label size, producing wildly oversized/overlapping
+        # text on real (high-DPI) printers. setPixelSize() sizes the font
+        # in the same device-pixel unit system used for every other
+        # coordinate in this function, so it stays correctly proportioned
+        # to the physical label regardless of the printer's DPI.
+        header_font = QFont("Segoe UI")
+        header_font.setBold(True)
+        header_font.setPixelSize(header_font_size)
         painter.setFont(header_font)
         painter.setPen(QPen(primary_qcolor))
         painter.drawText(
@@ -266,7 +280,8 @@ def draw_pass(painter, data: dict, width_px: float, height_px: float) -> None:
     available_height = max(field_area_bottom - field_area_top, 4)
     row_height = available_height / max(1, len(fields))
     field_font_size = max(4, min(int(height_px * 0.07), int(row_height * 0.65)))
-    field_font = QFont("Segoe UI", field_font_size)
+    field_font = QFont("Segoe UI")
+    field_font.setPixelSize(field_font_size)  # see note above re: pixel vs point size
     painter.setFont(field_font)
     painter.setPen(QPen(QColor(0, 0, 0)))
 
@@ -277,3 +292,102 @@ def draw_pass(painter, data: dict, width_px: float, height_px: float) -> None:
             Qt.AlignLeft | Qt.AlignVCenter,
             f"{label}: {value}",
         )
+
+
+# ------------------------------------------------------
+# TEMPORARY diagnostic pattern (not part of the visitor-pass design)
+# ------------------------------------------------------
+def draw_diagnostic_pattern(painter, width_px: float, height_px: float, width_mm: float, height_mm: float, info: dict) -> None:
+    """
+    TEMPORARY DIAGNOSTIC TOOL.
+
+    Draws a millimetre grid with coordinate markers, physical size
+    reference text, and printer/DPI metadata so the print coordinate
+    system (page size, DPI, device-pixel <-> physical-size mapping,
+    font sizing) can be visually verified against a ruler on a real
+    printed label. Intended to be run once against the actual Brother
+    QL-800 to confirm the fix in draw_pass(); not shown to end users
+    and safe to delete (along with PrinterManager.print_diagnostic)
+    once verified.
+    """
+    from PyQt5.QtCore import Qt, QRectF, QLineF
+    from PyQt5.QtGui import QPen, QColor, QFont
+
+    px_per_mm_x = (width_px / width_mm) if width_mm else 1.0
+    px_per_mm_y = (height_px / height_mm) if height_mm else 1.0
+
+    # Outer label boundary
+    pen = QPen(QColor(0, 0, 0))
+    pen.setWidthF(max(1.0, width_px * 0.004))
+    painter.setPen(pen)
+    painter.drawRect(QRectF(0, 0, width_px, height_px))
+
+    label_px = max(6, int(min(px_per_mm_x, px_per_mm_y) * 1.6))
+    grid_font = QFont("Segoe UI")
+    grid_font.setPixelSize(label_px)
+    painter.setFont(grid_font)
+
+    # Vertical grid lines every 1mm (minor) / 5mm (major, labelled with X in mm)
+    x_mm = 0
+    while x_mm <= width_mm:
+        x = x_mm * px_per_mm_x
+        major = (x_mm % 5 == 0)
+        pen.setColor(QColor(0, 0, 0) if major else QColor(190, 190, 190))
+        pen.setWidthF(1.2 if major else 0.5)
+        painter.setPen(pen)
+        painter.drawLine(QLineF(x, 0, x, height_px))
+        if major:
+            painter.setPen(QPen(QColor(0, 0, 0)))
+            painter.drawText(QRectF(x + 1, 0, px_per_mm_x * 5, label_px + 2), Qt.AlignLeft, str(x_mm))
+        x_mm += 1
+
+    # Horizontal grid lines every 1mm (minor) / 5mm (major, labelled with Y in mm)
+    y_mm = 0
+    while y_mm <= height_mm:
+        y = y_mm * px_per_mm_y
+        major = (y_mm % 5 == 0)
+        pen.setColor(QColor(0, 0, 0) if major else QColor(190, 190, 190))
+        pen.setWidthF(1.2 if major else 0.5)
+        painter.setPen(pen)
+        painter.drawLine(QLineF(0, y, width_px, y))
+        if major:
+            painter.setPen(QPen(QColor(0, 0, 0)))
+            painter.drawText(QRectF(0, y + 1, px_per_mm_x * 6, label_px + 2), Qt.AlignLeft, str(y_mm))
+        y_mm += 1
+
+    # Reference text rendered at known physical sizes (2mm / 3mm tall) so
+    # the actual printed height can be checked against a ruler.
+    ref_top = height_mm * 0.35 * px_per_mm_y
+    for mm_height in (2, 3):
+        ref_font = QFont("Segoe UI")
+        ref_font.setPixelSize(max(4, int(mm_height * px_per_mm_y)))
+        painter.setFont(ref_font)
+        painter.setPen(QPen(QColor(0, 90, 0)))
+        painter.fillRect(QRectF(width_mm * 0.35 * px_per_mm_x, ref_top, width_mm * 0.6 * px_per_mm_x, mm_height * px_per_mm_y * 1.4), QColor(255, 255, 255, 230))
+        painter.drawText(
+            QRectF(width_mm * 0.35 * px_per_mm_x, ref_top, width_mm * 0.6 * px_per_mm_x, mm_height * px_per_mm_y * 1.4),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            f"{mm_height}mm text ABC123",
+        )
+        ref_top += mm_height * px_per_mm_y * 1.6
+
+    # Metadata block: exactly what QPrinter/Windows reported for this job.
+    meta_lines = [
+        f"Printer: {info.get('printer_name')}",
+        f"Configured label: {info.get('width_mm'):.1f} x {info.get('height_mm'):.1f} mm",
+        f"pageRect(DevicePixel): {info.get('width_px'):.0f} x {info.get('height_px'):.0f} px",
+        f"printer.resolution(): {info.get('resolution_dpi')} dpi",
+        f"physicalDpi: {info.get('physical_dpi_x')} x {info.get('physical_dpi_y')}",
+        f"logicalDpi: {info.get('logical_dpi_x')} x {info.get('logical_dpi_y')}",
+        f"px/mm: {px_per_mm_x:.2f} x {px_per_mm_y:.2f}",
+    ]
+    meta_px = max(6, int(min(px_per_mm_x, px_per_mm_y) * 1.5))
+    meta_font = QFont("Segoe UI")
+    meta_font.setPixelSize(meta_px)
+    painter.setFont(meta_font)
+    meta_top = height_mm * 0.55 * px_per_mm_y
+    for idx, line in enumerate(meta_lines):
+        row_rect = QRectF(width_mm * 0.05 * px_per_mm_x, meta_top + idx * (meta_px + 2), width_mm * 0.9 * px_per_mm_x, meta_px + 2)
+        painter.fillRect(row_rect, QColor(255, 255, 255, 230))
+        painter.setPen(QPen(QColor(180, 0, 0)))
+        painter.drawText(row_rect, Qt.AlignLeft | Qt.AlignVCenter, line)
