@@ -12,7 +12,7 @@ from datetime import datetime
 import sys
 import logging
 
-from utils.license import LicenseManager
+from utils.license import LicenseManager, DEFAULT_LICENSE_EXPIRY
 from database import DatabaseManager
 from utils.styles import MAIN_STYLE
 from utils.app_config import load_config, save_config
@@ -137,12 +137,12 @@ class LicenseDialog(QDialog):
 
         layout.addRow("MAC Address:", mac_row)
 
-        # Expiry only for activation
+        # Expiry is hardcoded for client builds
         if self.mode == "activate":
-            self.expiry_input = QLineEdit()
-            self.expiry_input.setPlaceholderText("YYYY-MM-DD")
-            self.expiry_input.setStyleSheet(INPUT_STYLE)
-            layout.addRow("Expiry Date:", self.expiry_input)
+            self.expiry_display = QLineEdit(DEFAULT_LICENSE_EXPIRY)
+            self.expiry_display.setReadOnly(True)
+            self.expiry_display.setStyleSheet(INPUT_STYLE)
+            layout.addRow("Expiry Date:", self.expiry_display)
 
         # License Key
         self.license_input = QLineEdit()
@@ -179,12 +179,7 @@ class LicenseDialog(QDialog):
             return
 
         if self.mode == "activate":
-            expiry = self.expiry_input.text().strip()
-            try:
-                datetime.strptime(expiry, "%Y-%m-%d")
-            except:
-                QMessageBox.warning(self, "Invalid", "Expiry must be YYYY-MM-DD.")
-                return
+            expiry = DEFAULT_LICENSE_EXPIRY
 
             if not self.license_manager.validate_license(key, expiry):
                 QMessageBox.warning(self, "Invalid", "Key does not match device + expiry.")
@@ -309,7 +304,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------
     def _ensure_license(self) -> bool:
         # TEMP BYPASS: skip MAC/license checks for local dev
-        return True
+        # return True
         info = self.db_manager.get_license_info()
 
         if info and info.get("license_key"):

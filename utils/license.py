@@ -5,6 +5,9 @@ import logging
 from datetime import datetime, time
 from cryptography.fernet import Fernet
 
+# Hardcoded client license expiry — adjust this before distribution builds
+DEFAULT_LICENSE_EXPIRY = "2027-10-01"
+
 
 class LicenseManager:
     def __init__(self, db_manager=None):
@@ -151,7 +154,7 @@ class LicenseManager:
     # --------------------
     def get_current_device_info(self, expiry_date: str = None) -> dict:
         mac = self.get_device_mac()
-        example_key = self.generate_license_key(mac, expiry_date or "2026-01-01")
+        example_key = self.generate_license_key(mac, expiry_date or DEFAULT_LICENSE_EXPIRY)
         return {
             'mac_address': mac,
             'sample_license_key': example_key
