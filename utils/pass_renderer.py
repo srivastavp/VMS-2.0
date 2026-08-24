@@ -162,30 +162,34 @@ def generate_pdf(data: dict, output_path: str = None) -> str:
     qr_y = card_height - margin - qr_size  # bottom edge of the QR box
     c.drawImage(ImageReader(Image.open(qr_buffer)), qr_x, qr_y, width=qr_size, height=qr_size)
 
-    # Header (org name) — width-limited so it never runs under the QR code,
-    # shrinking the font before falling back to truncation.
+    # Header — site/location name only (no brand/app name), width-limited
+    # so it never runs under the QR code, shrinking the font before
+    # falling back to truncation.
+    header_text = data.get("location") or ""
     header_font_size = 7
     header_width_limit = qr_x - margin - 4
-    header_text = data.get("organization") or "M-Neo VMS"
-    while c.stringWidth(header_text, "Helvetica-Bold", header_font_size) > header_width_limit and header_font_size > 5:
-        header_font_size -= 1
-    while c.stringWidth(header_text, "Helvetica-Bold", header_font_size) > header_width_limit and len(header_text) > 3:
-        header_text = header_text[:-1]
-    c.setFont("Helvetica-Bold", header_font_size)
-    c.setFillColorRGB(*primary_color_norm)
-    header_baseline = card_height - margin - header_font_size
-    c.drawString(margin, header_baseline, header_text)
+    if header_text:
+        while c.stringWidth(header_text, "Helvetica-Bold", header_font_size) > header_width_limit and header_font_size > 5:
+            header_font_size -= 1
+        while c.stringWidth(header_text, "Helvetica-Bold", header_font_size) > header_width_limit and len(header_text) > 3:
+            header_text = header_text[:-1]
+        c.setFont("Helvetica-Bold", header_font_size)
+        c.setFillColorRGB(*primary_color_norm)
+        header_baseline = card_height - margin - header_font_size
+        c.drawString(margin, header_baseline, header_text)
+    else:
+        header_baseline = card_height - margin
 
     # Fields — the field block always starts below BOTH the header text and
     # the QR code, so rows never get hidden/overlapped underneath the QR.
+    # No footer/branding is reserved, so visitor fields get the full
+    # remaining space on the card.
     fields = _pass_fields(data)
-    footer_font_size = 5
-    footer_reserved = footer_font_size + 4
     fields_top = min(header_baseline - 4, qr_y - 2)
-    fields_bottom = margin + footer_reserved
+    fields_bottom = margin
     available_height = max(fields_top - fields_bottom, 6)
     row_height = available_height / max(1, len(fields))
-    field_font_size = max(4, min(6, row_height * 0.6))
+    field_font_size = max(4, min(7, row_height * 0.6))
 
     c.setFillColorRGB(0, 0, 0)
     text_width_limit = card_width - margin - 4
@@ -197,14 +201,6 @@ def generate_pdf(data: dict, output_path: str = None) -> str:
         c.setFont("Helvetica", field_font_size)
         y = fields_top - (idx + 1) * row_height + (row_height - field_font_size) / 2
         c.drawString(margin, y, text)
-
-    # Footer
-    c.setFont("Helvetica", footer_font_size)
-    c.setFillColorRGB(0.4, 0.4, 0.4)
-    footer_text = " | ".join(t for t in [data.get("location"), "M-Neo VMS"] if t)
-    while c.stringWidth(footer_text, "Helvetica", footer_font_size) > text_width_limit and len(footer_text) > 3:
-        footer_text = footer_text[:-1]
-    c.drawString(margin, margin, footer_text)
 
     c.save()
     return output_path
@@ -243,26 +239,28 @@ def draw_pass(painter, data: dict, width_px: float, height_px: float) -> None:
     qr_y = margin
     painter.drawImage(QRectF(qr_x, qr_y, qr_size, qr_size), qimg)
 
-    # Header (organization name), width-limited so it never runs under the QR
-    header_height = height_px * 0.12
-    header_font_size = max(6, int(height_px * 0.09))
-    header_font = QFont("Segoe UI", header_font_size, QFont.Bold)
-    painter.setFont(header_font)
-    painter.setPen(QPen(primary_qcolor))
-    header_text = (data.get("organization") or "M-Neo VMS")
-    painter.drawText(
-        QRectF(margin, margin, width_px - qr_size - margin * 3, header_height),
-        Qt.AlignLeft | Qt.AlignVCenter,
-        header_text,
-    )
+    # Header — site/location name only (no brand/app name), width-limited
+    # so it never runs under the QR code.
+    header_text = data.get("location") or ""
+    header_height = height_px * 0.12 if header_text else 0
+    if header_text:
+        header_font_size = max(6, int(height_px * 0.09))
+        header_font = QFont("Segoe UI", header_font_size, QFont.Bold)
+        painter.setFont(header_font)
+        painter.setPen(QPen(primary_qcolor))
+        painter.drawText(
+            QRectF(margin, margin, width_px - qr_size - margin * 3, header_height),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            header_text,
+        )
 
     # Fields — the field block always starts below BOTH the header and the
     # QR code (whichever extends further down), so rows are never hidden
-    # underneath the QR image.
-    footer_height = max(height_px * 0.08, 6)
+    # underneath the QR image. No footer/branding is reserved, so visitor
+    # fields get the full remaining space on the label.
     top_block_bottom = margin + max(header_height, qr_size)
     field_area_top = top_block_bottom + margin * 0.5
-    field_area_bottom = height_px - margin - footer_height
+    field_area_bottom = height_px - margin
     field_area_width = width_px - margin * 2
     fields = _pass_fields(data)
     available_height = max(field_area_bottom - field_area_top, 4)
@@ -279,14 +277,3 @@ def draw_pass(painter, data: dict, width_px: float, height_px: float) -> None:
             Qt.AlignLeft | Qt.AlignVCenter,
             f"{label}: {value}",
         )
-
-    # Footer
-    footer_font = QFont("Segoe UI", max(4, int(height_px * 0.05)))
-    painter.setFont(footer_font)
-    painter.setPen(QPen(QColor(100, 100, 100)))
-    footer_text = " | ".join(t for t in [data.get("location"), "M-Neo VMS"] if t)
-    painter.drawText(
-        QRectF(margin, height_px - margin - footer_height, field_area_width, footer_height),
-        Qt.AlignLeft | Qt.AlignVCenter,
-        footer_text,
-    )
